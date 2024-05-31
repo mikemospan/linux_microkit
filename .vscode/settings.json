@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "linux_microkit.h": "c",
+        "signal.h": "c",
+        "mman.h": "c",
+        "string.h": "c",
+        "unistd.h": "c"
+    }
+}
