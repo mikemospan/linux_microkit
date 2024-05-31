@@ -24,23 +24,23 @@ __attribute__((weak)) void init(void) {
     printf("==CHILD PROCESS INITIALISED==\n");
 }
 
-__attribute__((weak)) void notified(microkit_channel ch) {
-    printf("Notified received from channel: %d!\n", ch);
+__attribute__((weak)) void notified(unsigned int pid) {
+    printf("Notification received by process with id: %d, from process id: %d!\n", getpid(), pid);
 }
 
 /* EVENT HANDLER */
 
 static int start_child(__attribute__((unused)) void *arg) {
     init();
-    *state_check = true;
     printf("Child process received the message \"%s\" from shared buffer.\n", (char *) shared_buffer);
+    *state_check = true;
     while (*state_check);
     return 0;
 }
 
 static void signal_handler(int signo, siginfo_t *info, void *context) {
     if (signo == SIGUSR1) {
-        notified(1);
+        notified(info->si_pid);
     } else {
         fprintf(stderr, "Received unexpected signal\n");
     }
