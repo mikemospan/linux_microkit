@@ -16,7 +16,6 @@
 #define SHARED_MEM_SIZE PAGE_SIZE
 
 void *shared_buffer;
-struct channel *channel;
 
 /* USER PROVIDED FUNCTIONS */
 
@@ -43,7 +42,7 @@ int child_main(__attribute__((unused)) void *arg) {
         fprintf(stderr, "Error on allocating poll fds\n");
         return -1;
     }
-    fds[0].fd = channel->pipefd[0];
+    fds[0].fd = channel->pipefd[PIPE_READ_FD];
     fds[0].events = POLLIN;
 
     // Main event loop for polling for changes in pipes and calling notified accordingly
@@ -58,24 +57,74 @@ int child_main(__attribute__((unused)) void *arg) {
     return 0;
 }
 
-static struct process *create_process() {
-    struct process *process = malloc(sizeof(struct process));
-    process->next = NULL;
+static void create_process(struct process **process_list) {
+    struct process *current = *process_list;
+    if (current == NULL) {
+        *process_list = malloc(sizeof(struct process));
+        (*process_list)->next = NULL;
+        current = *process_list;
+    } else {
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = malloc(sizeof(struct process));
+        current = current->next;
+    }
 
     char *stack = malloc(STACK_SIZE);
     if (stack == NULL) {
         fprintf(stderr, "Error on allocating stack\n");
-        return NULL;
+        exit(EXIT_FAILURE);
     }
-    process->stack_top = stack + STACK_SIZE;
+    current->stack_top = stack + STACK_SIZE;
 
-    process->pid = clone(child_main, process->stack_top, SIGCHLD, NULL);
-    if (process->pid == -1) {
+    current->pid = clone(child_main, current->stack_top, SIGCHLD, NULL);
+    if (current->pid == -1) {
         fprintf(stderr, "Error on cloning\n");
-        return NULL;
+        exit(EXIT_FAILURE);
+    }
+}
+
+static void create_channel(microkit_channel ch) {
+    struct channel *current = channel;
+    if (current == NULL) {
+        channel = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+        if (channel == MAP_FAILED) {
+            fprintf(stderr, "Error on allocating shared buffer\n");
+            exit(EXIT_FAILURE);
+        }
+        current = channel;
+    } else {
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+        current = current->next;
     }
 
-    return process;
+    current->channel_id = ch;
+    current->next = NULL;
+    if (pipe(current->pipefd) == -1) {
+        fprintf(stderr, "Error on creating pipe\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+static void free_processes(struct process *process_list) {
+    while (process_list != NULL) {
+        struct process *next = process_list->next;
+        free(process_list->stack_top - STACK_SIZE);
+        free(process_list);
+        process_list = next;
+    }
+}
+
+static void free_channels() {
+    while (channel != NULL) {
+        struct channel *next = channel->next;
+        free(channel);
+        channel = next;
+    }
 }
 
 /* MAIN FUNCTION ACTING AS A SETUP FOR ALL NECESSARY OBJECTS */
@@ -90,21 +139,14 @@ int main(void) {
     strncpy(shared_buffer, "Hello World!", SHARED_MEM_SIZE);
 
     // Create our pipes and channels for interprocess communication
-    channel = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-    if (channel == MAP_FAILED) {
-        fprintf(stderr, "Error on allocating shared buffer\n");
-        return -1;
-    }
-    channel->channel_id = 1;
-    if (pipe(channel->pipefd) == -1) {
-        fprintf(stderr, "Error on creating pipe\n");
-        return -1;
-    }
+    create_channel(1);
 
-    struct process *process_list = create_process();
+    // Create our processes to act in place of protection domains
+    struct process *process_list = NULL;
+    create_process(&process_list);
 
-    // Replace this with user-level microkit_notify
-    write(channel->pipefd[1], &(channel->channel_id), sizeof(microkit_channel));
+    // Testing a microkit_notify
+    microkit_notify(channel->channel_id);
 
     // Wait for the child process to finish before leaving
     if (waitpid(process_list->pid, NULL, 0) == -1) {
@@ -115,7 +157,8 @@ int main(void) {
     // Unmap and free all used heap memory
     munmap(channel, sizeof(struct channel));
     munmap(shared_buffer, SHARED_MEM_SIZE);
-    free(process_list->stack_top - STACK_SIZE);
+    free_channels();
+    free_processes(process_list);
 
     return 0;
 }
