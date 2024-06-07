@@ -4,10 +4,10 @@
 #include <sched.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <stdbool.h>
+#include <poll.h>
 
 #include "include/linux_microkit.h"
 
@@ -16,7 +16,7 @@
 #define SHARED_MEM_SIZE PAGE_SIZE
 
 void *shared_buffer;
-bool *state_check;
+struct channel *channel;
 
 /* USER PROVIDED FUNCTIONS */
 
@@ -24,36 +24,63 @@ __attribute__((weak)) void init(void) {
     printf("==CHILD PROCESS INITIALISED==\n");
 }
 
-__attribute__((weak)) void notified(unsigned int pid) {
-    printf("Notification received by process with id: %d, from process id: %d!\n", getpid(), pid);
+__attribute__((weak)) void notified(microkit_channel ch) {
+    printf("Notification received by process with id: %d, on channel: %d!\n", getpid(), ch);
 }
 
-/* EVENT HANDLER */
+/* MAIN CHILD FUNCTION ACTING AS AN EVENT HANDLER */
 
-static int start_child(__attribute__((unused)) void *arg) {
+int child_main(__attribute__((unused)) void *arg) {
     init();
     printf("Child process received the message \"%s\" from shared buffer.\n", (char *) shared_buffer);
-    *state_check = true;
-    while (*state_check);
+    
+    // Declare and initialise necessary variables for polling from pipe
+    int ready;
+    nfds_t nfds = MICROKIT_MAX_CHANNELS;
+    microkit_channel buf;
+    struct pollfd *fds = calloc(nfds, sizeof(struct pollfd));
+    if (fds == NULL) {
+        fprintf(stderr, "Error on allocating poll fds\n");
+        return -1;
+    }
+    fds[0].fd = channel->pipefd[0];
+    fds[0].events = POLLIN;
+
+    // Main event loop for polling for changes in pipes and calling notified accordingly
+    while (ready = ppoll(fds, nfds, NULL, NULL)) {
+        for (nfds_t i = 0; i < nfds; i++) {
+            if (fds[i].revents) {
+                read(fds[i].fd, &buf, sizeof(microkit_channel));
+                notified(buf);
+            }
+        }
+    }
     return 0;
 }
 
-static void signal_handler(int signo, siginfo_t *info, void *context) {
-    if (signo == SIGUSR1) {
-        notified(info->si_pid);
-    } else {
-        fprintf(stderr, "Received unexpected signal\n");
-    }
-}
+static struct process *create_process() {
+    struct process *process = malloc(sizeof(struct process));
+    process->next = NULL;
 
-int main(void) {
-    // Initialise the child's stack
     char *stack = malloc(STACK_SIZE);
     if (stack == NULL) {
         fprintf(stderr, "Error on allocating stack\n");
-        return -1;
+        return NULL;
+    }
+    process->stack_top = stack + STACK_SIZE;
+
+    process->pid = clone(child_main, process->stack_top, SIGCHLD, NULL);
+    if (process->pid == -1) {
+        fprintf(stderr, "Error on cloning\n");
+        return NULL;
     }
 
+    return process;
+}
+
+/* MAIN FUNCTION ACTING AS A SETUP FOR ALL NECESSARY OBJECTS */
+
+int main(void) {
     // Create our shared memory and initialise it
     shared_buffer = mmap(NULL, SHARED_MEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
     if (shared_buffer == MAP_FAILED) {
@@ -62,48 +89,33 @@ int main(void) {
     }
     strncpy(shared_buffer, "Hello World!", SHARED_MEM_SIZE);
 
-    // Create some more shared memory which is necessary to check state of initialisation/signalling
-    state_check = mmap(NULL, sizeof(bool), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-    if (state_check == MAP_FAILED) {
-        fprintf(stderr, "Error on allocating shared memory to check initialisation\n");
+    // Create our pipes and channels for interprocess communication
+    channel = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+    if (channel == MAP_FAILED) {
+        fprintf(stderr, "Error on allocating shared buffer\n");
         return -1;
     }
-    *state_check = false;
-
-    // Initialise signal routing to signal_handler function
-    struct sigaction new_action = { 0 };
-    struct sigaction old_action;
-
-    new_action.sa_sigaction = signal_handler;
-    new_action.sa_flags = SA_SIGINFO;
-    sigemptyset(&new_action.sa_mask);
-    if (sigaction(SIGUSR1, &new_action, NULL) == -1) {
-        fprintf(stderr, "Error on rerouting signal\n");
+    channel->channel_id = 1;
+    if (pipe(channel->pipefd) == -1) {
+        fprintf(stderr, "Error on creating pipe\n");
         return -1;
     }
 
-    // Create the child process
-    char *stack_top = stack + STACK_SIZE;
-    int pid = clone(start_child, stack_top, SIGCHLD, NULL);
-    if (pid == -1) {
-        fprintf(stderr, "Error on cloning\n");
-        return -1;
-    }
+    struct process *process_list = create_process();
 
-    // Test running a notify
-    while (!(*state_check));
-    microkit_notify(pid);
-    *state_check = false;
+    // Replace this with user-level microkit_notify
+    write(channel->pipefd[1], &(channel->channel_id), sizeof(microkit_channel));
 
     // Wait for the child process to finish before leaving
-    if (waitpid(pid, NULL, 0) == -1) {
+    if (waitpid(process_list->pid, NULL, 0) == -1) {
         fprintf(stderr, "Error on waitpid\n");
         return -1;
     }
 
-    munmap(state_check, sizeof(bool));
+    // Unmap and free all used heap memory
+    munmap(channel, sizeof(struct channel));
     munmap(shared_buffer, SHARED_MEM_SIZE);
-    free(stack);
+    free(process_list->stack_top - STACK_SIZE);
 
     return 0;
 }
