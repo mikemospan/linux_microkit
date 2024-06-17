@@ -7,62 +7,13 @@
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <stdbool.h>
-#include <poll.h>
 
 #include "include/linux_microkit.h"
+#include "pd_main.c"
 
 #define PAGE_SIZE 4096
 #define STACK_SIZE PAGE_SIZE
 #define SHARED_MEM_SIZE PAGE_SIZE
-
-/* USER PROVIDED FUNCTIONS */
-
-__attribute__((weak)) void init(void) {
-    printf("==CHILD PROCESS INITIALISED==\n");
-}
-
-__attribute__((weak)) void notified(microkit_channel ch) {
-    printf("Notification received by process with id: %d, on channel: %d!\n", getpid(), ch);
-}
-
-/* MAIN CHILD FUNCTION ACTING AS AN EVENT HANDLER */
-
-static struct process *search_process(pid_t pid) {
-    struct process *current = process_list;
-    while (current != NULL && current->pid != pid) {
-        current = current->next;
-    }
-    return current;
-}
-
-int child_main(__attribute__((unused)) void *arg) {
-    init();
-
-    struct process *process = search_process(getpid());
-    printf("Child process received the message \"%s\" from shared buffer.\n", (char *) process->shared_memory->shared_buffer);
-    
-    // Declare and initialise necessary variables for polling from pipe
-    int ready;
-    microkit_channel buf;
-    struct pollfd *fds = calloc(MICROKIT_MAX_CHANNELS, sizeof(struct pollfd));
-    if (fds == NULL) {
-        fprintf(stderr, "Error on allocating poll fds\n");
-        return -1;
-    }
-    fds[0].fd = channel_list->pipefd[PIPE_READ_FD];
-    fds[0].events = POLLIN;
-
-    // Main event loop for polling for changes in pipes and calling notified accordingly
-    while (ready = ppoll(fds, MICROKIT_MAX_CHANNELS, NULL, NULL)) {
-        for (int i = 0; i < MICROKIT_MAX_CHANNELS; i++) {
-            if (fds[i].revents) {
-                read(fds[i].fd, &buf, sizeof(microkit_channel));
-                notified(buf);
-            }
-        }
-    }
-    return 0;
-}
 
 static void create_process(struct process **process_list) {
     struct process *current = *process_list;
