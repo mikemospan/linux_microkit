@@ -166,8 +166,14 @@ static void create_shared_memory(struct process *process, int size) {
 static void free_processes(struct process *process_list) {
     while (process_list != NULL) {
         struct process *next = process_list->next;
+        while (process_list->shared_memory != NULL) {
+            struct shared_memory *next = process_list->shared_memory->next;
+            munmap(process_list->shared_memory->shared_buffer, process_list->shared_memory->size);
+            munmap(process_list->shared_memory, sizeof(struct shared_memory));
+            process_list->shared_memory = next;
+        }
         free(process_list->stack_top - STACK_SIZE);
-        free(process_list);
+        munmap(process_list, sizeof(struct process));
         process_list = next;
     }
 }
@@ -175,7 +181,7 @@ static void free_processes(struct process *process_list) {
 static void free_channels() {
     while (channel != NULL) {
         struct channel *next = channel->next;
-        free(channel);
+        munmap(channel, sizeof(struct channel));
         channel = next;
     }
 }
