@@ -22,6 +22,7 @@ struct channel {
 };
 
 struct shared_memory {
+    char *name;
     void *shared_buffer;
     int size;
     struct shared_memory *next;
@@ -29,6 +30,7 @@ struct shared_memory {
 
 struct process *process_list = NULL;
 struct channel *channel_list = NULL;
+struct shared_memory *shared_memory_list = NULL;
 
 /* User provided functions */
 void init(void);

@@ -43,9 +43,8 @@ int child_main(__attribute__((unused)) void *arg) {
     
     // Declare and initialise necessary variables for polling from pipe
     int ready;
-    nfds_t nfds = MICROKIT_MAX_CHANNELS;
     microkit_channel buf;
-    struct pollfd *fds = calloc(nfds, sizeof(struct pollfd));
+    struct pollfd *fds = calloc(MICROKIT_MAX_CHANNELS, sizeof(struct pollfd));
     if (fds == NULL) {
         fprintf(stderr, "Error on allocating poll fds\n");
         return -1;
@@ -54,8 +53,8 @@ int child_main(__attribute__((unused)) void *arg) {
     fds[0].events = POLLIN;
 
     // Main event loop for polling for changes in pipes and calling notified accordingly
-    while (ready = ppoll(fds, nfds, NULL, NULL)) {
-        for (nfds_t i = 0; i < nfds; i++) {
+    while (ready = ppoll(fds, MICROKIT_MAX_CHANNELS, NULL, NULL)) {
+        for (int i = 0; i < MICROKIT_MAX_CHANNELS; i++) {
             if (fds[i].revents) {
                 read(fds[i].fd, &buf, sizeof(microkit_channel));
                 notified(buf);
@@ -151,15 +150,15 @@ static void add_channel(struct process *process, microkit_channel ch) {
     curr_pr->channel = curr_ch;
 }
 
-static void create_shared_memory(struct process *process, int size) {
-    struct shared_memory *current = process->shared_memory;
+static struct shared_memory *create_shared_memory(char *name, int size) {
+    struct shared_memory *current = shared_memory_list;
     if (current == NULL) {
-        process->shared_memory = malloc(sizeof(struct shared_memory));
-        if (process->shared_memory == NULL) {
+        shared_memory_list = malloc(sizeof(struct shared_memory));
+        if (shared_memory_list == NULL) {
             fprintf(stderr, "Error on allocating shared buffer\n");
             exit(EXIT_FAILURE);
         }
-        current = process->shared_memory;
+        current = shared_memory_list;
     } else {
         while (current->next != NULL) {
             current = current->next;
@@ -178,18 +177,31 @@ static void create_shared_memory(struct process *process, int size) {
         exit(EXIT_FAILURE);
     }
     current->size = size;
+    current->name = name;
     current->next = NULL;
+
+    return current;
+}
+
+static void add_shared_memory(struct process *process, char *name, int size) {
+    struct shared_memory *curr_sh = shared_memory_list;
+    while (curr_sh != NULL && strcmp(curr_sh->name, name) != 0) {
+        curr_sh = curr_sh->next;
+    }
+    if (curr_sh == NULL) {
+        curr_sh = create_shared_memory(name, size);
+    }
+
+    struct process *curr_pr = process;
+    while (curr_pr->shared_memory != NULL) {
+        curr_pr->shared_memory = curr_pr->shared_memory->next;
+    }
+    curr_pr->shared_memory = curr_sh;
 }
 
 static void free_processes() {
     while (process_list != NULL) {
         struct process *next = process_list->next;
-        while (process_list->shared_memory != NULL) {
-            struct shared_memory *next = process_list->shared_memory->next;
-            munmap(process_list->shared_memory->shared_buffer, process_list->shared_memory->size);
-            munmap(process_list->shared_memory, sizeof(struct shared_memory));
-            process_list->shared_memory = next;
-        }
         free(process_list->stack_top - STACK_SIZE);
         munmap(process_list, sizeof(struct process));
         process_list = next;
@@ -204,6 +216,15 @@ static void free_channels() {
     }
 }
 
+static void free_shared_memory() {
+    while (shared_memory_list != NULL) {
+        struct shared_memory *next = shared_memory_list->next;
+        munmap(shared_memory_list->shared_buffer, shared_memory_list->size);
+        munmap(shared_memory_list, sizeof(struct shared_memory));
+        shared_memory_list = next;
+    }
+}
+
 /* MAIN FUNCTION ACTING AS A SETUP FOR ALL NECESSARY OBJECTS */
 
 int main(void) {
@@ -211,7 +232,8 @@ int main(void) {
     create_process(&process_list);
 
     // Create our shared memory and initialise it
-    create_shared_memory(process_list, SHARED_MEM_SIZE);
+    char var_name[16] = "my_buffer";
+    add_shared_memory(process_list, var_name, SHARED_MEM_SIZE);
     strncpy(process_list->shared_memory->shared_buffer, "Hello World!", SHARED_MEM_SIZE);
 
     // Create our pipes and channels for interprocess communication
@@ -232,6 +254,7 @@ int main(void) {
 
     // Unmap and free all used heap memory
     free_channels();
+    free_shared_memory();
     free_processes();
 
     return 0;
