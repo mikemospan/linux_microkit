@@ -1,6 +1,8 @@
 {
     "files.associations": {
         "linux_microkit.h": "c",
-        "wait.h": "c"
+        "wait.h": "c",
+        "stdbool.h": "c",
+        "string.h": "c"
     }
 }

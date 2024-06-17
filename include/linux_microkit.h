@@ -8,17 +8,25 @@
 typedef unsigned int microkit_channel;
 
 struct process {
-    int pid;
+    pid_t pid;
     char *stack_top;
+    struct shared_memory *shared_memory;
     struct process *next;
 };
 
 struct channel {
     microkit_channel channel_id;
-    int pipefd[2];
+    pid_t pipefd[2];
     struct channel *next;
 };
 
+struct shared_memory {
+    void *shared_buffer;
+    int size;
+    struct shared_memory *next;
+};
+
+struct process *process_list = NULL;
 struct channel *channel = NULL;
 
 /* User provided functions */

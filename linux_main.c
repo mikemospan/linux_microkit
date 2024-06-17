@@ -15,8 +15,6 @@
 #define STACK_SIZE PAGE_SIZE
 #define SHARED_MEM_SIZE PAGE_SIZE
 
-void *shared_buffer;
-
 /* USER PROVIDED FUNCTIONS */
 
 __attribute__((weak)) void init(void) {
@@ -29,9 +27,19 @@ __attribute__((weak)) void notified(microkit_channel ch) {
 
 /* MAIN CHILD FUNCTION ACTING AS AN EVENT HANDLER */
 
+static struct process *search_process(pid_t pid) {
+    struct process *current = process_list;
+    while (current != NULL && current->pid != pid) {
+        current = current->next;
+    }
+    return current;
+}
+
 int child_main(__attribute__((unused)) void *arg) {
     init();
-    printf("Child process received the message \"%s\" from shared buffer.\n", (char *) shared_buffer);
+
+    struct process *process = search_process(getpid());
+    printf("Child process received the message \"%s\" from shared buffer.\n", (char *) process->shared_memory->shared_buffer);
     
     // Declare and initialise necessary variables for polling from pipe
     int ready;
@@ -60,14 +68,22 @@ int child_main(__attribute__((unused)) void *arg) {
 static void create_process(struct process **process_list) {
     struct process *current = *process_list;
     if (current == NULL) {
-        *process_list = malloc(sizeof(struct process));
+        *process_list = mmap(NULL, sizeof(struct process), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+        if (*process_list == MAP_FAILED) {
+            fprintf(stderr, "Error on allocating shared buffer\n");
+            exit(EXIT_FAILURE);
+        }
         (*process_list)->next = NULL;
         current = *process_list;
     } else {
         while (current->next != NULL) {
             current = current->next;
         }
-        current->next = malloc(sizeof(struct process));
+        current->next = mmap(NULL, sizeof(struct process), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+        if (current->next == MAP_FAILED) {
+            fprintf(stderr, "Error on allocating shared buffer\n");
+            exit(EXIT_FAILURE);
+        }
         current = current->next;
     }
 
@@ -77,9 +93,12 @@ static void create_process(struct process **process_list) {
         exit(EXIT_FAILURE);
     }
     current->stack_top = stack + STACK_SIZE;
+    current->pid = -1;
+}
 
-    current->pid = clone(child_main, current->stack_top, SIGCHLD, NULL);
-    if (current->pid == -1) {
+static void run_process(struct process *process) {
+    process->pid = clone(child_main, process->stack_top, SIGCHLD, NULL);
+    if (process->pid == -1) {
         fprintf(stderr, "Error on cloning\n");
         exit(EXIT_FAILURE);
     }
@@ -99,6 +118,10 @@ static void create_channel(microkit_channel ch) {
             current = current->next;
         }
         current->next = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+        if (current->next == MAP_FAILED) {
+            fprintf(stderr, "Error on allocating channel\n");
+            exit(EXIT_FAILURE);
+        }
         current = current->next;
     }
 
@@ -108,6 +131,36 @@ static void create_channel(microkit_channel ch) {
         fprintf(stderr, "Error on creating pipe\n");
         exit(EXIT_FAILURE);
     }
+}
+
+static void create_shared_memory(struct process *process, int size) {
+    struct shared_memory *current = process->shared_memory;
+    if (current == NULL) {
+        process->shared_memory = malloc(sizeof(struct shared_memory));
+        if (process->shared_memory == NULL) {
+            fprintf(stderr, "Error on allocating shared buffer\n");
+            exit(EXIT_FAILURE);
+        }
+        current = process->shared_memory;
+    } else {
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = malloc(sizeof(struct shared_memory));
+        if (current->next == NULL) {
+            fprintf(stderr, "Error on allocating shared buffer\n");
+            exit(EXIT_FAILURE);
+        }
+        current = current->next;
+    }
+
+    current->shared_buffer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+    if (current->shared_buffer == MAP_FAILED) {
+        fprintf(stderr, "Error on allocating shared buffer\n");
+        exit(EXIT_FAILURE);
+    }
+    current->size = size;
+    current->next = NULL;
 }
 
 static void free_processes(struct process *process_list) {
@@ -130,23 +183,22 @@ static void free_channels() {
 /* MAIN FUNCTION ACTING AS A SETUP FOR ALL NECESSARY OBJECTS */
 
 int main(void) {
-    // Create our shared memory and initialise it
-    shared_buffer = mmap(NULL, SHARED_MEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-    if (shared_buffer == MAP_FAILED) {
-        fprintf(stderr, "Error on allocating shared buffer\n");
-        return -1;
-    }
-    strncpy(shared_buffer, "Hello World!", SHARED_MEM_SIZE);
-
-    // Create our pipes and channels for interprocess communication
-    create_channel(1);
-
     // Create our processes to act in place of protection domains
-    struct process *process_list = NULL;
     create_process(&process_list);
 
+    // Create our shared memory and initialise it
+    create_shared_memory(process_list, SHARED_MEM_SIZE);
+    strncpy(process_list->shared_memory->shared_buffer, "Hello World!", SHARED_MEM_SIZE);
+
+    // Create our pipes and channels for interprocess communication
+    microkit_channel channel_id = 1;
+    create_channel(channel_id);
+
+    // Start running the specified process
+    run_process(process_list);
+
     // Testing a microkit_notify
-    microkit_notify(channel->channel_id);
+    microkit_notify(channel_id);
 
     // Wait for the child process to finish before leaving
     if (waitpid(process_list->pid, NULL, 0) == -1) {
@@ -155,8 +207,6 @@ int main(void) {
     }
 
     // Unmap and free all used heap memory
-    munmap(channel, sizeof(struct channel));
-    munmap(shared_buffer, SHARED_MEM_SIZE);
     free_channels();
     free_processes(process_list);
 
