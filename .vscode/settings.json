@@ -5,6 +5,8 @@
         "stdbool.h": "c",
         "string.h": "c",
         "stdlib.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "poll.h": "c",
+        "sched.h": "c"
     }
 }

@@ -1,8 +1,12 @@
-#include <stdlib.h>
-#include <poll.h>
+#define _GNU_SOURCE
+
 #include <stdio.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <poll.h>
 
 #include "include/linux_microkit.h"
+#include "pd_main.h"
 
 /* USER PROVIDED FUNCTIONS */
 
@@ -52,5 +56,6 @@ int child_main(__attribute__((unused)) void *arg) {
             }
         }
     }
+
     return 0;
 }

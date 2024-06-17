@@ -28,9 +28,9 @@ struct shared_memory {
     struct shared_memory *next;
 };
 
-struct process *process_list = NULL;
-struct channel *channel_list = NULL;
-struct shared_memory *shared_memory_list = NULL;
+extern struct process *process_list;
+extern struct channel *channel_list;
+extern struct shared_memory *shared_memory_list;
 
 /* User provided functions */
 void init(void);

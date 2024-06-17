@@ -9,11 +9,15 @@
 #include <stdbool.h>
 
 #include "include/linux_microkit.h"
-#include "pd_main.c"
+#include "pd_main.h"
 
 #define PAGE_SIZE 4096
 #define STACK_SIZE PAGE_SIZE
 #define SHARED_MEM_SIZE PAGE_SIZE
+
+struct process *process_list = NULL;
+struct channel *channel_list = NULL;
+struct shared_memory *shared_memory_list = NULL;
 
 static void create_process(struct process **process_list) {
     struct process *current = *process_list;
