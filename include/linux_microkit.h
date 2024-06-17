@@ -11,6 +11,7 @@ struct process {
     pid_t pid;
     char *stack_top;
     struct shared_memory *shared_memory;
+    struct channel *channel;
     struct process *next;
 };
 
@@ -27,7 +28,7 @@ struct shared_memory {
 };
 
 struct process *process_list = NULL;
-struct channel *channel = NULL;
+struct channel *channel_list = NULL;
 
 /* User provided functions */
 void init(void);
@@ -35,7 +36,7 @@ void notified(microkit_channel ch);
 
 /* Microkit API */
 static inline void microkit_notify(microkit_channel ch) {
-    struct channel *current = channel;
+    struct channel *current = channel_list;
     while (current != NULL) {
         if (current->channel_id == ch) {
             write(current->pipefd[PIPE_WRITE_FD], &(current->channel_id), sizeof(microkit_channel));

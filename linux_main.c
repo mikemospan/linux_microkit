@@ -50,7 +50,7 @@ int child_main(__attribute__((unused)) void *arg) {
         fprintf(stderr, "Error on allocating poll fds\n");
         return -1;
     }
-    fds[0].fd = channel->pipefd[PIPE_READ_FD];
+    fds[0].fd = channel_list->pipefd[PIPE_READ_FD];
     fds[0].events = POLLIN;
 
     // Main event loop for polling for changes in pipes and calling notified accordingly
@@ -104,15 +104,15 @@ static void run_process(struct process *process) {
     }
 }
 
-static void create_channel(microkit_channel ch) {
-    struct channel *current = channel;
+static struct channel *create_channel(microkit_channel ch) {
+    struct channel *current = channel_list;
     if (current == NULL) {
-        channel = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-        if (channel == MAP_FAILED) {
+        channel_list = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+        if (channel_list == MAP_FAILED) {
             fprintf(stderr, "Error on allocating shared buffer\n");
             exit(EXIT_FAILURE);
         }
-        current = channel;
+        current = channel_list;
     } else {
         while (current->next != NULL) {
             current = current->next;
@@ -131,6 +131,24 @@ static void create_channel(microkit_channel ch) {
         fprintf(stderr, "Error on creating pipe\n");
         exit(EXIT_FAILURE);
     }
+
+    return current;
+}
+
+static void add_channel(struct process *process, microkit_channel ch) {
+    struct channel *curr_ch = channel_list;
+    while (curr_ch != NULL && curr_ch->channel_id != ch) {
+        curr_ch = curr_ch->next;
+    }
+    if (curr_ch == NULL) {
+        curr_ch = create_channel(ch);
+    }
+
+    struct process *curr_pr = process;
+    while (curr_pr->channel != NULL) {
+        curr_pr->channel = curr_pr->channel->next;
+    }
+    curr_pr->channel = curr_ch;
 }
 
 static void create_shared_memory(struct process *process, int size) {
@@ -163,7 +181,7 @@ static void create_shared_memory(struct process *process, int size) {
     current->next = NULL;
 }
 
-static void free_processes(struct process *process_list) {
+static void free_processes() {
     while (process_list != NULL) {
         struct process *next = process_list->next;
         while (process_list->shared_memory != NULL) {
@@ -179,10 +197,10 @@ static void free_processes(struct process *process_list) {
 }
 
 static void free_channels() {
-    while (channel != NULL) {
-        struct channel *next = channel->next;
-        munmap(channel, sizeof(struct channel));
-        channel = next;
+    while (channel_list != NULL) {
+        struct channel *next = channel_list->next;
+        munmap(channel_list, sizeof(struct channel));
+        channel_list = next;
     }
 }
 
@@ -198,7 +216,7 @@ int main(void) {
 
     // Create our pipes and channels for interprocess communication
     microkit_channel channel_id = 1;
-    create_channel(channel_id);
+    add_channel(process_list, channel_id);
 
     // Start running the specified process
     run_process(process_list);
@@ -214,7 +232,7 @@ int main(void) {
 
     // Unmap and free all used heap memory
     free_channels();
-    free_processes(process_list);
+    free_processes();
 
     return 0;
 }
