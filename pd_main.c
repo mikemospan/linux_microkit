@@ -15,7 +15,7 @@ __attribute__((weak)) void init(void) {
 }
 
 __attribute__((weak)) void notified(microkit_channel ch) {
-    printf("Notification received by process with id: %d, on channel: %d!\n", getpid(), ch);
+    printf("Notification received by process with id: %d, on channel: %u!\n", getpid(), ch);
 }
 
 /* HELPER FUNCTIONS */
@@ -44,13 +44,18 @@ int child_main(__attribute__((unused)) void *arg) {
         fprintf(stderr, "Error on allocating poll fds\n");
         return -1;
     }
-    fds[0].fd = channel_list->pipefd[PIPE_READ_FD];
-    fds[0].events = POLLIN;
+
+    struct channel *curr = process->channel;
+    for (int i = 0; curr != NULL; i++) {
+        fds[i].fd = curr->pipefd[PIPE_READ_FD];
+        fds[i].events = POLLIN;
+        curr = curr->next;
+    }
 
     // Main event loop for polling for changes in pipes and calling notified accordingly
     while (ready = ppoll(fds, MICROKIT_MAX_CHANNELS, NULL, NULL)) {
         for (int i = 0; i < MICROKIT_MAX_CHANNELS; i++) {
-            if (fds[i].revents) {
+            if (fds[i].revents & POLLIN) {
                 read(fds[i].fd, &buf, sizeof(microkit_channel));
                 notified(buf);
             }

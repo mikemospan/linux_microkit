@@ -44,6 +44,7 @@ static inline void microkit_notify(microkit_channel ch) {
             write(current->pipefd[PIPE_WRITE_FD], &(current->channel_id), sizeof(microkit_channel));
             return;
         }
+        current = current->next;
     }
 
     fprintf(stderr, "Channel id %u is not a valid channel\n", ch);

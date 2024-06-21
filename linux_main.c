@@ -19,16 +19,16 @@ struct process *process_list = NULL;
 struct channel *channel_list = NULL;
 struct shared_memory *shared_memory_list = NULL;
 
-static void create_process(struct process **process_list) {
-    struct process *current = *process_list;
+static struct process *create_process() {
+    struct process *current = process_list;
     if (current == NULL) {
-        *process_list = mmap(NULL, sizeof(struct process), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-        if (*process_list == MAP_FAILED) {
+        process_list = mmap(NULL, sizeof(struct process), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+        if (process_list == MAP_FAILED) {
             fprintf(stderr, "Error on allocating shared buffer\n");
             exit(EXIT_FAILURE);
         }
-        (*process_list)->next = NULL;
-        current = *process_list;
+        process_list->next = NULL;
+        current = process_list;
     } else {
         while (current->next != NULL) {
             current = current->next;
@@ -48,6 +48,8 @@ static void create_process(struct process **process_list) {
     }
     current->stack_top = stack + STACK_SIZE;
     current->pid = -1;
+
+    return current;
 }
 
 static void run_process(struct process *process) {
@@ -184,27 +186,38 @@ static void free_shared_memory() {
 
 int main(void) {
     // Create our processes to act in place of protection domains
-    create_process(&process_list);
+    struct process *p1 = create_process();
+    struct process *p2 = create_process();
 
     // Create our shared memory and initialise it
-    char var_name[16] = "my_buffer";
-    add_shared_memory(process_list, var_name, SHARED_MEM_SIZE);
-    strncpy(process_list->shared_memory->shared_buffer, "Hello World!", SHARED_MEM_SIZE);
+    add_shared_memory(p1, "buffer1", SHARED_MEM_SIZE);
+    strncpy(p1->shared_memory->shared_buffer, "Hello World!", SHARED_MEM_SIZE);
+
+    add_shared_memory(p2, "buffer2", SHARED_MEM_SIZE);
+    strncpy(p2->shared_memory->shared_buffer, "Goodbye World!", SHARED_MEM_SIZE);
 
     // Create our pipes and channels for interprocess communication
-    microkit_channel channel_id = 1;
-    add_channel(process_list, channel_id);
+    microkit_channel channel1_id = 1;
+    microkit_channel channel2_id = 2;
+    add_channel(p1, channel1_id);
+    add_channel(p2, channel2_id);
 
     // Start running the specified process
-    run_process(process_list);
+    run_process(p1);
+    run_process(p2);
 
     // Testing a microkit_notify
-    microkit_notify(channel_id);
+    microkit_notify(channel1_id);
+    microkit_notify(channel2_id);
 
     // Wait for the child process to finish before leaving
-    if (waitpid(process_list->pid, NULL, 0) == -1) {
-        fprintf(stderr, "Error on waitpid\n");
-        return -1;
+    struct process *curr = process_list;
+    while (curr != NULL) {
+        if (waitpid(curr->pid, NULL, 0) == -1) {
+            fprintf(stderr, "Error on waitpid\n");
+            return -1;
+        }
+        curr = curr->next;
     }
 
     // Unmap and free all used heap memory
