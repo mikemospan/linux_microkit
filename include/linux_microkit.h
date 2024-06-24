@@ -2,6 +2,7 @@
 
 #define __thread
 #define MICROKIT_MAX_CHANNELS 62
+#define MICROKIT_MAX_SHARED_MEMORY 62
 #define PIPE_READ_FD 0
 #define PIPE_WRITE_FD 1
 
@@ -10,8 +11,8 @@ typedef unsigned int microkit_channel;
 struct process {
     pid_t pid;
     char *stack_top;
-    struct shared_memory *shared_memory;
-    struct channel *channel;
+    struct shared_memory **shared_memory;
+    struct channel **channel;
     struct process *next;
 };
 
