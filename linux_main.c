@@ -172,6 +172,8 @@ static void free_processes() {
     while (process_list != NULL) {
         struct process *next = process_list->next;
         free(process_list->stack_top - STACK_SIZE);
+        munmap(process_list->channel, sizeof(struct channel *));
+        munmap(process_list->shared_memory, sizeof(struct shared_memory *));
         munmap(process_list, sizeof(struct process));
         process_list = next;
     }
