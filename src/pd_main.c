@@ -1,22 +1,11 @@
 #define _GNU_SOURCE
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <sys/wait.h>
 #include <poll.h>
+#include <dlfcn.h>
 
-#include "include/linux_microkit.h"
-#include "pd_main.h"
-
-/* USER PROVIDED FUNCTIONS */
-
-__attribute__((weak)) void init(void) {
-    printf("==CHILD PROCESS INITIALISED==\n");
-}
-
-__attribute__((weak)) void notified(microkit_channel ch) {
-    printf("Notification received by process with id: %d, on channel: %u!\n", getpid(), ch);
-}
+#include "../include/linux_microkit.h"
+#include "../include/pd_main.h"
 
 /* HELPER FUNCTIONS */
 
@@ -28,10 +17,48 @@ static struct process *search_process(int pid) {
     return current;
 }
 
+void execute_init(const char *path) {
+    void *handle = dlopen(path, RTLD_LAZY);
+    if (!handle) {
+        fprintf(stderr, "Error opening file: %s\n", dlerror());
+        exit(EXIT_FAILURE);
+    }
+
+    void (*init)(void) = (void (*)(void)) dlsym(handle, "init");
+    const char *dlsym_error = dlerror();
+    if (dlsym_error) {
+        fprintf(stderr, "Error finding function '%s': %s\n", "init", dlsym_error);
+        dlclose(handle);
+        exit(EXIT_FAILURE);
+    }
+
+    init();
+    dlclose(handle);
+}
+
+void execute_notified(const char *path, microkit_channel buf) {
+    void *handle = dlopen(path, RTLD_LAZY);
+    if (!handle) {
+        fprintf(stderr, "Error opening file: %s\n", dlerror());
+        exit(EXIT_FAILURE);
+    }
+
+    void (*notified)(microkit_channel) = (void (*)(microkit_channel)) dlsym(handle, "notified");
+    const char *dlsym_error = dlerror();
+    if (dlsym_error) {
+        fprintf(stderr, "Error finding function '%s': %s\n", "notified", dlsym_error);
+        dlclose(handle);
+        exit(EXIT_FAILURE);
+    }
+
+    notified(buf);
+    dlclose(handle);
+}
+
 /* MAIN CHILD FUNCTION ACTING AS AN EVENT HANDLER */
 
 int child_main(__attribute__((unused)) void *arg) {
-    init();
+    execute_init("./user/test.so");
 
     struct process *process = search_process(getpid());
     printf("Child process received the message \"%s\" from shared buffer.\n", (char *) (*process->shared_memory)->shared_buffer);
@@ -55,7 +82,7 @@ int child_main(__attribute__((unused)) void *arg) {
             if (fds[i].revents & POLLIN) {
                 microkit_channel buf;
                 read(fds[i].fd, &buf, sizeof(microkit_channel));
-                notified(buf);
+                execute_notified("./user/test.so", buf);
             }
         }
     }

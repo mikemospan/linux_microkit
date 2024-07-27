@@ -2,13 +2,12 @@
 
 #include <stdio.h>
 #include <sched.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <stdbool.h>
 
-#include "include/linux_microkit.h"
+#include "linux_microkit.h"
 #include "pd_main.h"
 
 #define PAGE_SIZE 4096

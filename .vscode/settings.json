@@ -7,6 +7,12 @@
         "stdlib.h": "c",
         "stdio.h": "c",
         "poll.h": "c",
-        "sched.h": "c"
+        "sched.h": "c",
+        "fcntl.h": "c",
+        "elf.h": "c",
+        "compare": "c",
+        "type_traits": "c",
+        "mman.h": "c",
+        "dlfcn.h": "c"
     }
 }

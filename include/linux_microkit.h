@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stdlib.h>
+#include <unistd.h>
+
 #define __thread
 #define MICROKIT_MAX_CHANNELS 62
 #define MICROKIT_MAX_SHARED_MEMORY 62
