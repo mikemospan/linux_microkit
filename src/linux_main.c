@@ -63,8 +63,8 @@ static struct process *create_process() {
     return current;
 }
 
-static void run_process(struct process *process) {
-    process->pid = clone(child_main, process->stack_top, SIGCHLD, NULL);
+static void run_process(struct process *process, const char *path) {
+    process->pid = clone(child_main, process->stack_top, SIGCHLD, (void *) path);
     if (process->pid == -1) {
         fprintf(stderr, "Error on cloning\n");
         exit(EXIT_FAILURE);
@@ -215,15 +215,11 @@ int main(void) {
     add_channel(p1, channel1_id);
     add_channel(p2, channel2_id);
 
-    // Start running the specified process
-    run_process(p1);
-    run_process(p2);
+    // Start running the specified processes
+    run_process(p1, "./user/server.so");
+    run_process(p2, "./user/client.so");
 
-    // Testing a microkit_notify
-    microkit_notify(channel1_id);
-    microkit_notify(channel2_id);
-
-    // Wait for the child process to finish before leaving
+    // Wait for the child processes to finish before leaving
     struct process *curr = process_list;
     while (curr != NULL) {
         if (waitpid(curr->pid, NULL, 0) == -1) {

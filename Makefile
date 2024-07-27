@@ -14,7 +14,7 @@ $(SRC_DIR)/%.so: $(SRC_DIR)/%.c
 	gcc -fPIC -shared -o $@ $<
 
 linux_main:
-	gcc src/linux_main.c src/pd_main.c -o linux_main
+	gcc -rdynamic src/linux_main.c src/pd_main.c -o linux_main -ldl
 
 clean:
 	rm -f linux_main $(SRC_DIR)/*.o $(SRC_DIR)/*.so

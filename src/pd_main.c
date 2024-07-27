@@ -19,8 +19,8 @@ static struct process *search_process(int pid) {
 
 void execute_init(const char *path) {
     void *handle = dlopen(path, RTLD_LAZY);
-    if (!handle) {
-        fprintf(stderr, "Error opening file: %s\n", dlerror());
+    if (handle == NULL) {
+        printf("Error opening file: %s\n", dlerror());
         exit(EXIT_FAILURE);
     }
 
@@ -38,14 +38,14 @@ void execute_init(const char *path) {
 
 void execute_notified(const char *path, microkit_channel buf) {
     void *handle = dlopen(path, RTLD_LAZY);
-    if (!handle) {
-        fprintf(stderr, "Error opening file: %s\n", dlerror());
+    if (handle == NULL) {
+        printf("Error opening file: %s\n", dlerror());
         exit(EXIT_FAILURE);
     }
 
     void (*notified)(microkit_channel) = (void (*)(microkit_channel)) dlsym(handle, "notified");
     const char *dlsym_error = dlerror();
-    if (dlsym_error) {
+    if (dlsym_error != NULL) {
         fprintf(stderr, "Error finding function \"notified\": %s\n", dlsym_error);
         dlclose(handle);
         exit(EXIT_FAILURE);
@@ -57,8 +57,8 @@ void execute_notified(const char *path, microkit_channel buf) {
 
 /* MAIN CHILD FUNCTION ACTING AS AN EVENT HANDLER */
 
-int child_main(__attribute__((unused)) void *arg) {
-    execute_init("./user/test.so");
+int child_main(void *arg) {
+    execute_init((const char *) arg);
 
     struct process *process = search_process(getpid());
     printf("Child process received the message \"%s\" from shared buffer.\n", (char *) (*process->shared_memory)->shared_buffer);
@@ -82,7 +82,7 @@ int child_main(__attribute__((unused)) void *arg) {
             if (fds[i].revents & POLLIN) {
                 microkit_channel buf;
                 read(fds[i].fd, &buf, sizeof(microkit_channel));
-                execute_notified("./user/test.so", buf);
+                execute_notified((const char *) arg, buf);
             }
         }
     }
