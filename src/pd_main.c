@@ -27,7 +27,7 @@ void execute_init(const char *path) {
     void (*init)(void) = (void (*)(void)) dlsym(handle, "init");
     const char *dlsym_error = dlerror();
     if (dlsym_error) {
-        fprintf(stderr, "Error finding function '%s': %s\n", "init", dlsym_error);
+        fprintf(stderr, "Error finding function \"init\": %s\n", dlsym_error);
         dlclose(handle);
         exit(EXIT_FAILURE);
     }
@@ -46,7 +46,7 @@ void execute_notified(const char *path, microkit_channel buf) {
     void (*notified)(microkit_channel) = (void (*)(microkit_channel)) dlsym(handle, "notified");
     const char *dlsym_error = dlerror();
     if (dlsym_error) {
-        fprintf(stderr, "Error finding function '%s': %s\n", "notified", dlsym_error);
+        fprintf(stderr, "Error finding function \"notified\": %s\n", dlsym_error);
         dlclose(handle);
         exit(EXIT_FAILURE);
     }

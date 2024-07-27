@@ -1,14 +1,20 @@
 export C_INCLUDE_PATH=./include
 
+SRC_DIR = ./user
+
 .PHONY: all clean
 
-all: linux_main test.so
+SRCS = $(wildcard $(SRC_DIR)/*.c)
+TARGETS = $(SRCS:.c=.so)
+
+all: linux_main $(TARGETS)
+
+# Compile each .c file into a .so file
+$(SRC_DIR)/%.so: $(SRC_DIR)/%.c
+	gcc -fPIC -shared -o $@ $<
 
 linux_main: src/linux_main.c src/pd_main.c
-	gcc -I../include src/linux_main.c src/pd_main.c -o linux_main
-
-test.so: ./user/test.c
-	gcc -shared -fPIC -I ../include ./user/test.c -o ./user/test.so
+	gcc src/linux_main.c src/pd_main.c -o linux_main
 
 clean:
-	rm -f linux_main ./user/test.so
+	rm -f linux_main $(SRC_DIR)/*.o $(SRC_DIR)/*.so
