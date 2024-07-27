@@ -4,8 +4,8 @@
 #include <poll.h>
 #include <dlfcn.h>
 
-#include "../include/linux_microkit.h"
-#include "../include/pd_main.h"
+#include "linux_microkit.h"
+#include "pd_main.h"
 
 /* HELPER FUNCTIONS */
 

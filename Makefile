@@ -13,7 +13,7 @@ all: linux_main $(TARGETS)
 $(SRC_DIR)/%.so: $(SRC_DIR)/%.c
 	gcc -fPIC -shared -o $@ $<
 
-linux_main: src/linux_main.c src/pd_main.c
+linux_main:
 	gcc src/linux_main.c src/pd_main.c -o linux_main
 
 clean:
