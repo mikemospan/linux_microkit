@@ -1,1 +1,1 @@
-int child_main(__attribute__((unused)) void *arg);
+int child_main(void *arg);

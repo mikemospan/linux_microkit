@@ -23,7 +23,7 @@ static struct process *create_process() {
     if (current == NULL) {
         process_list = mmap(NULL, sizeof(struct process), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
         if (process_list == MAP_FAILED) {
-            fprintf(stderr, "Error on allocating shared buffer\n");
+            printf("Error on allocating shared buffer\n");
             exit(EXIT_FAILURE);
         }
         process_list->next = NULL;
@@ -34,7 +34,7 @@ static struct process *create_process() {
         }
         current->next = mmap(NULL, sizeof(struct process), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
         if (current->next == MAP_FAILED) {
-            fprintf(stderr, "Error on allocating shared buffer\n");
+            printf("Error on allocating shared buffer\n");
             exit(EXIT_FAILURE);
         }
         current = current->next;
@@ -42,7 +42,7 @@ static struct process *create_process() {
 
     char *stack = malloc(STACK_SIZE);
     if (stack == NULL) {
-        fprintf(stderr, "Error on allocating stack\n");
+        printf("Error on allocating stack\n");
         exit(EXIT_FAILURE);
     }
     current->stack_top = stack + STACK_SIZE;
@@ -50,13 +50,17 @@ static struct process *create_process() {
     current->channel = mmap(NULL, sizeof(struct channel *) * MICROKIT_MAX_CHANNELS,
         PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
     if (current->channel == MAP_FAILED) {
-        fprintf(stderr, "Error on allocating channel\n");
+        printf("Error on allocating channel\n");
         exit(EXIT_FAILURE);
     }
     current->shared_memory = mmap(NULL, sizeof(struct shared_memory *) * MICROKIT_MAX_SHARED_MEMORY,
         PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-    if (current->channel == MAP_FAILED) {
-        fprintf(stderr, "Error on allocating channel\n");
+    if (current->shared_memory == MAP_FAILED) {
+        printf("Error on allocating shared memory\n");
+        exit(EXIT_FAILURE);
+    }
+    if (pipe(current->pipefd) == -1) {
+        printf("Error on creating pipe\n");
         exit(EXIT_FAILURE);
     }
 
@@ -66,17 +70,17 @@ static struct process *create_process() {
 static void run_process(struct process *process, const char *path) {
     process->pid = clone(child_main, process->stack_top, SIGCHLD, (void *) path);
     if (process->pid == -1) {
-        fprintf(stderr, "Error on cloning\n");
+        printf("Error on cloning\n");
         exit(EXIT_FAILURE);
     }
 }
 
-static struct channel *create_channel(microkit_channel ch) {
+static struct channel *create_channel(struct process *to, microkit_channel ch) {
     struct channel *current = channel_list;
     if (current == NULL) {
         channel_list = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
         if (channel_list == MAP_FAILED) {
-            fprintf(stderr, "Error on allocating shared buffer\n");
+            printf("Error on allocating shared buffer\n");
             exit(EXIT_FAILURE);
         }
         current = channel_list;
@@ -86,32 +90,29 @@ static struct channel *create_channel(microkit_channel ch) {
         }
         current->next = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
         if (current->next == MAP_FAILED) {
-            fprintf(stderr, "Error on allocating channel\n");
+            printf("Error on allocating channel\n");
             exit(EXIT_FAILURE);
         }
         current = current->next;
     }
 
     current->channel_id = ch;
+    current->to = to;
     current->next = NULL;
-    if (pipe(current->pipefd) == -1) {
-        fprintf(stderr, "Error on creating pipe\n");
-        exit(EXIT_FAILURE);
-    }
 
     return current;
 }
 
-static void add_channel(struct process *process, microkit_channel ch) {
+static void add_channel(struct process *from, struct process *to, microkit_channel ch) {
     struct channel *curr_ch = channel_list;
-    while (curr_ch != NULL && curr_ch->channel_id != ch) {
+    while (curr_ch != NULL && (curr_ch->channel_id != ch || curr_ch->to != to)) {
         curr_ch = curr_ch->next;
     }
     if (curr_ch == NULL) {
-        curr_ch = create_channel(ch);
+        curr_ch = create_channel(to, ch);
     }
 
-    struct channel **temp = process->channel;
+    struct channel **temp = from->channel;
     while (*temp != NULL) {
         temp += sizeof(struct channel *);
     }
@@ -123,7 +124,7 @@ static struct shared_memory *create_shared_memory(char *name, int size) {
     if (current == NULL) {
         shared_memory_list = malloc(sizeof(struct shared_memory));
         if (shared_memory_list == NULL) {
-            fprintf(stderr, "Error on allocating shared buffer\n");
+            printf("Error on allocating shared buffer\n");
             exit(EXIT_FAILURE);
         }
         current = shared_memory_list;
@@ -133,7 +134,7 @@ static struct shared_memory *create_shared_memory(char *name, int size) {
         }
         current->next = malloc(sizeof(struct shared_memory));
         if (current->next == NULL) {
-            fprintf(stderr, "Error on allocating shared buffer\n");
+            printf("Error on allocating shared buffer\n");
             exit(EXIT_FAILURE);
         }
         current = current->next;
@@ -141,7 +142,7 @@ static struct shared_memory *create_shared_memory(char *name, int size) {
 
     current->shared_buffer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
     if (current->shared_buffer == MAP_FAILED) {
-        fprintf(stderr, "Error on allocating shared buffer\n");
+        printf("Error on allocating shared buffer\n");
         exit(EXIT_FAILURE);
     }
     current->size = size;
@@ -171,8 +172,6 @@ static void free_processes() {
     while (process_list != NULL) {
         struct process *next = process_list->next;
         free(process_list->stack_top - STACK_SIZE);
-        munmap(process_list->channel, sizeof(struct channel *));
-        munmap(process_list->shared_memory, sizeof(struct shared_memory *));
         munmap(process_list, sizeof(struct process));
         process_list = next;
     }
@@ -212,8 +211,8 @@ int main(void) {
     // Create our pipes and channels for interprocess communication
     microkit_channel channel1_id = 1;
     microkit_channel channel2_id = 2;
-    add_channel(p1, channel1_id);
-    add_channel(p2, channel2_id);
+    add_channel(p1, p2, channel1_id);
+    add_channel(p2, p1, channel2_id);
 
     // Start running the specified processes
     run_process(p1, "./user/server.so");
@@ -223,7 +222,7 @@ int main(void) {
     struct process *curr = process_list;
     while (curr != NULL) {
         if (waitpid(curr->pid, NULL, 0) == -1) {
-            fprintf(stderr, "Error on waitpid\n");
+            printf("Error on waitpid\n");
             return -1;
         }
         curr = curr->next;

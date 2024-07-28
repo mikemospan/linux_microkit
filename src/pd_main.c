@@ -7,9 +7,11 @@
 #include "linux_microkit.h"
 #include "pd_main.h"
 
+#define FDS_SIZE 496
+
 /* HELPER FUNCTIONS */
 
-static struct process *search_process(int pid) {
+struct process *search_process(int pid) {
     struct process *current = process_list;
     while (current != NULL && current->pid != pid) {
         current = current->next;
@@ -17,7 +19,7 @@ static struct process *search_process(int pid) {
     return current;
 }
 
-void execute_init(const char *path) {
+static void execute_init(const char *path) {
     void *handle = dlopen(path, RTLD_LAZY);
     if (handle == NULL) {
         printf("Error opening file: %s\n", dlerror());
@@ -26,8 +28,8 @@ void execute_init(const char *path) {
 
     void (*init)(void) = (void (*)(void)) dlsym(handle, "init");
     const char *dlsym_error = dlerror();
-    if (dlsym_error) {
-        fprintf(stderr, "Error finding function \"init\": %s\n", dlsym_error);
+    if (dlsym_error != NULL) {
+        printf("Error finding function \"init\": %s\n", dlsym_error);
         dlclose(handle);
         exit(EXIT_FAILURE);
     }
@@ -36,7 +38,7 @@ void execute_init(const char *path) {
     dlclose(handle);
 }
 
-void execute_notified(const char *path, microkit_channel buf) {
+static void execute_notified(const char *path, microkit_channel buf) {
     void *handle = dlopen(path, RTLD_LAZY);
     if (handle == NULL) {
         printf("Error opening file: %s\n", dlerror());
@@ -46,7 +48,7 @@ void execute_notified(const char *path, microkit_channel buf) {
     void (*notified)(microkit_channel) = (void (*)(microkit_channel)) dlsym(handle, "notified");
     const char *dlsym_error = dlerror();
     if (dlsym_error != NULL) {
-        fprintf(stderr, "Error finding function \"notified\": %s\n", dlsym_error);
+        printf("Error finding function \"notified\": %s\n", dlsym_error);
         dlclose(handle);
         exit(EXIT_FAILURE);
     }
@@ -55,8 +57,7 @@ void execute_notified(const char *path, microkit_channel buf) {
     dlclose(handle);
 }
 
-/* MAIN CHILD FUNCTION ACTING AS AN EVENT HANDLER */
-
+/* Main child function acting as an event handler */
 int child_main(void *arg) {
     execute_init((const char *) arg);
 
@@ -64,17 +65,14 @@ int child_main(void *arg) {
     printf("Child process received the message \"%s\" from shared buffer.\n", (char *) (*process->shared_memory)->shared_buffer);
     
     // Declare and initialise necessary variables for polling from pipe
-    struct pollfd *fds = calloc(MICROKIT_MAX_CHANNELS, sizeof(struct pollfd));
+    struct pollfd *fds = malloc(FDS_SIZE);
     if (fds == NULL) {
-        fprintf(stderr, "Error on allocating poll fds\n");
+        printf("Error on allocating poll fds\n");
         return -1;
     }
 
-    struct channel **curr = process->channel;
-    for (int i = 0; curr[i] != NULL; i++) {
-        fds[i].fd = curr[i]->pipefd[PIPE_READ_FD];
-        fds[i].events = POLLIN;
-    }
+    fds->fd = process->pipefd[PIPE_READ_FD];
+    fds->events = POLLIN;
 
     // Main event loop for polling for changes in pipes and calling notified accordingly
     while (ppoll(fds, MICROKIT_MAX_CHANNELS, NULL, NULL)) {

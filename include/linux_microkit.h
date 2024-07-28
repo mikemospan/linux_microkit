@@ -14,6 +14,7 @@ typedef unsigned int microkit_channel;
 struct process {
     pid_t pid;
     char *stack_top;
+    pid_t pipefd[2];
     struct shared_memory **shared_memory;
     struct channel **channel;
     struct process *next;
@@ -21,7 +22,7 @@ struct process {
 
 struct channel {
     microkit_channel channel_id;
-    pid_t pipefd[2];
+    struct process *to;
     struct channel *next;
 };
 
@@ -42,15 +43,15 @@ void notified(microkit_channel ch);
 
 /* Microkit API */
 static inline void microkit_notify(microkit_channel ch) {
-    struct channel *current = channel_list;
-    while (current != NULL) {
-        if (current->channel_id == ch) {
-            write(current->pipefd[PIPE_WRITE_FD], &(current->channel_id), sizeof(microkit_channel));
+    extern struct process *search_process(int pid);
+    struct channel **current = search_process(getpid())->channel;
+    for (int i = 0; current[i] != NULL; i++) {
+        if (current[i]->channel_id == ch) {
+            write(current[i]->to->pipefd[PIPE_WRITE_FD], &(current[i]->channel_id), sizeof(microkit_channel));
             return;
         }
-        current = current->next;
     }
 
-    fprintf(stderr, "Channel id %u is not a valid channel\n", ch);
+    printf("Channel id %u is not a valid channel\n", ch);
     exit(EXIT_FAILURE);
 }

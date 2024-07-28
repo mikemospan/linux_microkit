@@ -2,7 +2,7 @@
 
 #include "linux_microkit.h"
 
-#define SERVER_CHANNEL_ID 1
+#define SERVER_CHANNEL_ID 2
 
 void init(void) {
     printf("==CLIENT PROCESS INITIALISED==\n");
