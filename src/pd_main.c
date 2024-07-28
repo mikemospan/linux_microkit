@@ -16,16 +16,19 @@ struct process *search_process(int pid) {
     while (current != NULL && current->pid != pid) {
         current = current->next;
     }
+    if (current == NULL) {
+        printf("Could not find process with pid %d\n", pid);
+        exit(EXIT_FAILURE);
+    }
     return current;
 }
 
-static void execute_init(const char *path) {
-    void *handle = dlopen(path, RTLD_LAZY);
-    if (handle == NULL) {
-        printf("Error opening file: %s\n", dlerror());
-        exit(EXIT_FAILURE);
-    }
+static void update_buffers(void *handle) {
+    unsigned long *buff = (unsigned long *) dlsym(handle, "buffer");
+    *buff = (unsigned long) shared_memory_list->shared_buffer;
+}
 
+static void execute_init(void *handle) {
     void (*init)(void) = (void (*)(void)) dlsym(handle, "init");
     const char *dlsym_error = dlerror();
     if (dlsym_error != NULL) {
@@ -35,16 +38,9 @@ static void execute_init(const char *path) {
     }
 
     init();
-    dlclose(handle);
 }
 
-static void execute_notified(const char *path, microkit_channel buf) {
-    void *handle = dlopen(path, RTLD_LAZY);
-    if (handle == NULL) {
-        printf("Error opening file: %s\n", dlerror());
-        exit(EXIT_FAILURE);
-    }
-
+static void execute_notified(void *handle, microkit_channel buf) {
     void (*notified)(microkit_channel) = (void (*)(microkit_channel)) dlsym(handle, "notified");
     const char *dlsym_error = dlerror();
     if (dlsym_error != NULL) {
@@ -54,15 +50,20 @@ static void execute_notified(const char *path, microkit_channel buf) {
     }
 
     notified(buf);
-    dlclose(handle);
 }
 
 /* Main child function acting as an event handler */
 int child_main(void *arg) {
-    execute_init((const char *) arg);
-
+    void *handle = dlopen((const char *) arg, RTLD_LAZY);
+    if (handle == NULL) {
+        printf("Error opening file: %s\n", dlerror());
+        exit(EXIT_FAILURE);
+    }
     struct process *process = search_process(getpid());
-    printf("Child process received the message \"%s\" from shared buffer.\n", (char *) (*process->shared_memory)->shared_buffer);
+
+    update_buffers(handle);
+
+    execute_init(handle);
     
     // Declare and initialise necessary variables for polling from pipe
     struct pollfd *fds = malloc(FDS_SIZE);
@@ -80,10 +81,11 @@ int child_main(void *arg) {
             if (fds[i].revents & POLLIN) {
                 microkit_channel buf;
                 read(fds[i].fd, &buf, sizeof(microkit_channel));
-                execute_notified((const char *) arg, buf);
+                execute_notified(handle, buf);
             }
         }
     }
 
+    dlclose(handle);
     return 0;
 }

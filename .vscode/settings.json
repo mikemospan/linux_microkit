@@ -13,6 +13,8 @@
         "compare": "c",
         "type_traits": "c",
         "mman.h": "c",
-        "dlfcn.h": "c"
+        "dlfcn.h": "c",
+        "typeinfo": "c",
+        "system_error": "c"
     }
 }

@@ -15,7 +15,6 @@ struct process {
     pid_t pid;
     char *stack_top;
     pid_t pipefd[2];
-    struct shared_memory **shared_memory;
     struct channel **channel;
     struct process *next;
 };
@@ -27,7 +26,6 @@ struct channel {
 };
 
 struct shared_memory {
-    char *name;
     void *shared_buffer;
     int size;
     struct shared_memory *next;

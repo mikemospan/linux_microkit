@@ -53,12 +53,6 @@ static struct process *create_process() {
         printf("Error on allocating channel\n");
         exit(EXIT_FAILURE);
     }
-    current->shared_memory = mmap(NULL, sizeof(struct shared_memory *) * MICROKIT_MAX_SHARED_MEMORY,
-        PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-    if (current->shared_memory == MAP_FAILED) {
-        printf("Error on allocating shared memory\n");
-        exit(EXIT_FAILURE);
-    }
     if (pipe(current->pipefd) == -1) {
         printf("Error on creating pipe\n");
         exit(EXIT_FAILURE);
@@ -119,7 +113,7 @@ static void add_channel(struct process *from, struct process *to, microkit_chann
     *temp = curr_ch;
 }
 
-static struct shared_memory *create_shared_memory(char *name, int size) {
+static struct shared_memory *create_shared_memory(int size) {
     struct shared_memory *current = shared_memory_list;
     if (current == NULL) {
         shared_memory_list = malloc(sizeof(struct shared_memory));
@@ -146,26 +140,9 @@ static struct shared_memory *create_shared_memory(char *name, int size) {
         exit(EXIT_FAILURE);
     }
     current->size = size;
-    current->name = name;
     current->next = NULL;
 
     return current;
-}
-
-static void add_shared_memory(struct process *process, char *name, int size) {
-    struct shared_memory *curr_sh = shared_memory_list;
-    while (curr_sh != NULL && strcmp(curr_sh->name, name) != 0) {
-        curr_sh = curr_sh->next;
-    }
-    if (curr_sh == NULL) {
-        curr_sh = create_shared_memory(name, size);
-    }
-
-    struct shared_memory **temp = process->shared_memory;
-    while (*temp != NULL) {
-        temp += sizeof(struct shared_memory *);
-    }
-    *temp = curr_sh;
 }
 
 static void free_processes() {
@@ -202,11 +179,7 @@ int main(void) {
     struct process *p2 = create_process();
 
     // Create our shared memory and initialise it
-    add_shared_memory(p1, "buffer1", SHARED_MEM_SIZE);
-    strncpy((*p1->shared_memory)->shared_buffer, "Hello World!", SHARED_MEM_SIZE);
-
-    add_shared_memory(p2, "buffer2", SHARED_MEM_SIZE);
-    strncpy((*p2->shared_memory)->shared_buffer, "Goodbye World!", SHARED_MEM_SIZE);
+    create_shared_memory(SHARED_MEM_SIZE);
 
     // Create our pipes and channels for interprocess communication
     microkit_channel channel1_id = 1;
