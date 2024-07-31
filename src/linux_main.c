@@ -1,14 +1,12 @@
 #define _GNU_SOURCE
 
-#include <stdio.h>
+#include <pd_main.h>
+
 #include <sched.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <stdbool.h>
-
-#include "linux_microkit.h"
-#include "pd_main.h"
 
 #define PAGE_SIZE 4096
 #define STACK_SIZE PAGE_SIZE
@@ -113,7 +111,7 @@ static void add_channel(struct process *from, struct process *to, microkit_chann
     *temp = curr_ch;
 }
 
-static struct shared_memory *create_shared_memory(int size) {
+static struct shared_memory *create_shared_memory(char *name, int size) {
     struct shared_memory *current = shared_memory_list;
     if (current == NULL) {
         shared_memory_list = malloc(sizeof(struct shared_memory));
@@ -140,6 +138,7 @@ static struct shared_memory *create_shared_memory(int size) {
         exit(EXIT_FAILURE);
     }
     current->size = size;
+    current->name = name;
     current->next = NULL;
 
     return current;
@@ -179,7 +178,7 @@ int main(void) {
     struct process *p2 = create_process();
 
     // Create our shared memory and initialise it
-    create_shared_memory(SHARED_MEM_SIZE);
+    create_shared_memory("buffer", SHARED_MEM_SIZE);
 
     // Create our pipes and channels for interprocess communication
     microkit_channel channel1_id = 1;

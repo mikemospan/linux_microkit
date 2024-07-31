@@ -1,31 +1,23 @@
 #define _GNU_SOURCE
 
-#include <stdio.h>
+#include <pd_main.h>
+
 #include <poll.h>
 #include <dlfcn.h>
-
-#include "linux_microkit.h"
-#include "pd_main.h"
 
 #define FDS_SIZE 496
 
 /* HELPER FUNCTIONS */
 
-struct process *search_process(int pid) {
-    struct process *current = process_list;
-    while (current != NULL && current->pid != pid) {
-        current = current->next;
-    }
-    if (current == NULL) {
-        printf("Could not find process with pid %d\n", pid);
-        exit(EXIT_FAILURE);
-    }
-    return current;
-}
-
 static void update_buffers(void *handle) {
-    unsigned long *buff = (unsigned long *) dlsym(handle, "buffer");
-    *buff = (unsigned long) shared_memory_list->shared_buffer;
+    struct shared_memory *curr = shared_memory_list;
+    while (curr != NULL) {
+        unsigned long *buff = (unsigned long *) dlsym(handle, curr->name);
+        if (dlerror() == NULL) {
+            *buff = (unsigned long) curr->shared_buffer;
+        }
+        curr = curr->next;
+    }
 }
 
 static void execute_init(void *handle) {

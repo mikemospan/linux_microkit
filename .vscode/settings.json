@@ -15,6 +15,17 @@
         "mman.h": "c",
         "dlfcn.h": "c",
         "typeinfo": "c",
-        "system_error": "c"
+        "system_error": "c",
+        "unistd.h": "c",
+        "types.h": "c",
+        "hash_info.h": "c",
+        "stubs.h": "c",
+        "lib-names-64.h": "c",
+        "lib-names.h": "c",
+        "stubs-64.h": "c",
+        "stdint-gcc.h": "c",
+        "search.h": "c",
+        "data_structures.h": "c",
+        "pd_main.h": "c"
     }
 }
