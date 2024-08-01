@@ -10,22 +10,12 @@ typedef unsigned int microkit_channel;
 
 KHASH_MAP_INIT_INT(channel, struct process *)
 
-struct process_list {
-    struct process *head;
-    struct process *tail;
-};
-
 struct process {
     pid_t pid;
     char *stack_top;
     pid_t pipefd[2];
     khash_t(channel) *channel_map;
     struct process *next;
-};
-
-struct shared_memory_list {
-    struct shared_memory *head;
-    struct shared_memory *tail;
 };
 
 struct shared_memory {

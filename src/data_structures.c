@@ -4,8 +4,8 @@
 
 #include <sys/mman.h>
 
-struct process_list *process_list = NULL;
-struct shared_memory_list *shared_memory_list = NULL;
+struct process *process_stack = NULL;
+struct shared_memory *shared_memory_stack = NULL;
 
 struct process *create_process() {
     struct process *new = malloc(sizeof(struct process));
@@ -13,19 +13,6 @@ struct process *create_process() {
         printf("Error on allocating process\n");
         exit(EXIT_FAILURE);
     }
-
-    if (process_list == NULL) {
-        process_list = malloc(sizeof(struct process_list));
-        process_list->head = NULL;
-        process_list->tail = NULL;
-    }
-
-    if (process_list->head == NULL) {
-        process_list->head = new;
-    } else {
-        process_list->tail->next = new;
-    }
-    process_list->tail = new;
 
     new->pid = -1;
     char *stack = malloc(STACK_SIZE);
@@ -39,6 +26,10 @@ struct process *create_process() {
         printf("Error on creating pipe\n");
         exit(EXIT_FAILURE);
     }
+
+    struct process *next = process_stack;
+    process_stack = new;
+    process_stack->next = next;
 
     return new;
 }
@@ -60,19 +51,6 @@ void create_shared_memory(char *name, int size) {
         exit(EXIT_FAILURE);
     }
 
-    if (shared_memory_list == NULL) {
-        shared_memory_list = malloc(sizeof(struct shared_memory_list));
-        shared_memory_list->head = NULL;
-        shared_memory_list->tail = NULL;
-    }
-
-    if (shared_memory_list->head == NULL) {
-        shared_memory_list->head = new;
-    } else {
-        shared_memory_list->tail->next = new;
-    }
-
-    shared_memory_list->tail = new;
     new->shared_buffer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
     if (new->shared_buffer == MAP_FAILED) {
         printf("Error on allocating shared buffer\n");
@@ -81,26 +59,27 @@ void create_shared_memory(char *name, int size) {
     new->size = size;
     new->name = name;
     new->next = NULL;
+
+    struct shared_memory *next = shared_memory_stack;
+    shared_memory_stack = new;
+    shared_memory_stack->next = next;
 }
 
 void free_processes() {
-    while (process_list->head != NULL) {
-        struct process *next = process_list->head->next;
-        free(process_list->head->stack_top - STACK_SIZE);
-        kh_free(channel, process_list->head->channel_map);
-        free(process_list->head);
-        process_list->head = next;
+    while (process_stack != NULL) {
+        struct process *next = process_stack->next;
+        free(process_stack->stack_top - STACK_SIZE);
+        kh_free(channel, process_stack->channel_map);
+        free(process_stack);
+        process_stack = next;
     }
-    free(process_list);
 }
 
 void free_shared_memory() {
-    while (shared_memory_list->head != NULL) {
-        struct shared_memory *next = shared_memory_list->head->next;
-        struct shared_memory *curr = shared_memory_list->head;
-        munmap(curr->shared_buffer, curr->size);
-        free(curr);
-        shared_memory_list->head = next;
+    while (shared_memory_stack != NULL) {
+        struct shared_memory *next = shared_memory_stack->next;
+        munmap(shared_memory_stack->shared_buffer, shared_memory_stack->size);
+        free(shared_memory_stack);
+        shared_memory_stack = next;
     }
-    free(shared_memory_list);
 }

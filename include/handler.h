@@ -9,7 +9,7 @@
 #define MICROKIT_MAX_CHANNELS 62
 #define MICROKIT_MAX_SHARED_MEMORY 62
 
-extern struct process_list *process_list;
-extern struct shared_memory_list *shared_memory_list;
+extern struct process *process_stack;
+extern struct shared_memory *shared_memory_stack;
 
 int event_handler(void *arg);

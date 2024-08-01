@@ -38,7 +38,7 @@ int main(void) {
     run_process(p2, "./user/client.so");
 
     // Wait for the child processes to finish before leaving
-    struct process *curr = process_list->head;
+    struct process *curr = process_stack;
     while (curr != NULL) {
         if (waitpid(curr->pid, NULL, 0) == -1) {
             printf("Error on waitpid\n");

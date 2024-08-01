@@ -12,7 +12,7 @@ struct info *info;
 /* HELPER FUNCTIONS */
 
 static void set_shared_memory(void *handle) {
-    struct shared_memory *curr = shared_memory_list->head;
+    struct shared_memory *curr = shared_memory_stack;
     while (curr != NULL) {
         unsigned long *buff = (unsigned long *) dlsym(handle, curr->name);
         if (dlerror() == NULL) {
