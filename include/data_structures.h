@@ -29,4 +29,16 @@ struct shared_memory {
     struct shared_memory *next;
 };
 
+struct process *create_process();
+
 struct process *search_process(int pid);
+
+struct channel *create_channel(struct process *to, microkit_channel ch);
+
+struct shared_memory *create_shared_memory(char *name, int size);
+
+void free_processes();
+
+void free_channels();
+
+void free_shared_memory();

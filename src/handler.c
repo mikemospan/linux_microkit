@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 
-#include <pd_main.h>
+#include <handler.h>
 
 #include <poll.h>
 #include <dlfcn.h>
@@ -45,7 +45,7 @@ static void execute_notified(void *handle, microkit_channel buf) {
 }
 
 /* Main child function acting as an event handler */
-int child_main(void *arg) {
+int event_handler(void *arg) {
     void *handle = dlopen((const char *) arg, RTLD_LAZY);
     if (handle == NULL) {
         printf("Error opening file: %s\n", dlerror());

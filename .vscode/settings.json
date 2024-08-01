@@ -26,6 +26,7 @@
         "stdint-gcc.h": "c",
         "search.h": "c",
         "data_structures.h": "c",
-        "pd_main.h": "c"
+        "pd_main.h": "c",
+        "handler.h": "c"
     }
 }
