@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include <linux_microkit.h>
+#include <microkit.h>
 
 #define SERVER_CHANNEL_ID 2
 

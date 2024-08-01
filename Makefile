@@ -10,14 +10,14 @@ USRS_TARGET = $(USRS:.c=.so)
 
 .PHONY: all clean
 
-all: linux_main $(USRS_TARGET)
+all: main $(USRS_TARGET)
 
 # Compile each .c file into a .so file
 $(USR_DIR)/%.so: $(USR_DIR)/%.c
 	gcc -fPIC -shared -o $@ $<
 
-linux_main: $(SRCS)
+main: $(SRCS)
 	gcc -rdynamic -o $@ $^ -ldl
 
 clean:
-	rm -f linux_main $(USR_DIR)/*.o $(USR_DIR)/*.so
+	rm -f main $(USR_DIR)/*.o $(USR_DIR)/*.so
