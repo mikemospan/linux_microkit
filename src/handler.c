@@ -7,10 +7,12 @@
 
 #define FDS_SIZE 496
 
+struct info *info;
+
 /* HELPER FUNCTIONS */
 
-static void update_buffers(void *handle) {
-    struct shared_memory *curr = shared_memory_list;
+static void set_shared_memory(void *handle) {
+    struct shared_memory *curr = shared_memory_list->head;
     while (curr != NULL) {
         unsigned long *buff = (unsigned long *) dlsym(handle, curr->name);
         if (dlerror() == NULL) {
@@ -46,15 +48,14 @@ static void execute_notified(void *handle, microkit_channel buf) {
 
 /* Main child function acting as an event handler */
 int event_handler(void *arg) {
-    void *handle = dlopen((const char *) arg, RTLD_LAZY);
+    info = (struct info *) arg;
+    void *handle = dlopen(info->path, RTLD_LAZY);
     if (handle == NULL) {
         printf("Error opening file: %s\n", dlerror());
         exit(EXIT_FAILURE);
     }
-    struct process *process = search_process(getpid());
 
-    update_buffers(handle);
-
+    set_shared_memory(handle);
     execute_init(handle);
     
     // Declare and initialise necessary variables for polling from pipe
@@ -64,7 +65,7 @@ int event_handler(void *arg) {
         return -1;
     }
 
-    fds->fd = process->pipefd[PIPE_READ_FD];
+    fds->fd = info->process->pipefd[PIPE_READ_FD];
     fds->events = POLLIN;
 
     // Main event loop for polling for changes in pipes and calling notified accordingly
@@ -79,5 +80,6 @@ int event_handler(void *arg) {
     }
 
     dlclose(handle);
+    free(info);
     return 0;
 }

@@ -27,6 +27,13 @@
         "search.h": "c",
         "data_structures.h": "c",
         "pd_main.h": "c",
-        "handler.h": "c"
+        "handler.h": "c",
+        "array": "c",
+        "deque": "c",
+        "string": "c",
+        "unordered_map": "c",
+        "vector": "c",
+        "string_view": "c",
+        "initializer_list": "c"
     }
 }

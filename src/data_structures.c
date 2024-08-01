@@ -4,148 +4,105 @@
 
 #include <sys/mman.h>
 
-struct process *process_list = NULL;
-struct channel *channel_list = NULL;
-struct shared_memory *shared_memory_list = NULL;
+struct process_list *process_list = NULL;
+struct shared_memory_list *shared_memory_list = NULL;
 
 struct process *create_process() {
-    struct process *current = process_list;
-    if (current == NULL) {
-        process_list = mmap(NULL, sizeof(struct process), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-        if (process_list == MAP_FAILED) {
-            printf("Error on allocating shared buffer\n");
-            exit(EXIT_FAILURE);
-        }
-        process_list->next = NULL;
-        current = process_list;
-    } else {
-        while (current->next != NULL) {
-            current = current->next;
-        }
-        current->next = mmap(NULL, sizeof(struct process), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-        if (current->next == MAP_FAILED) {
-            printf("Error on allocating shared buffer\n");
-            exit(EXIT_FAILURE);
-        }
-        current = current->next;
+    struct process *new = malloc(sizeof(struct process));
+    if (new == NULL) {
+        printf("Error on allocating process\n");
+        exit(EXIT_FAILURE);
     }
 
+    if (process_list == NULL) {
+        process_list = malloc(sizeof(struct process_list));
+        process_list->head = NULL;
+        process_list->tail = NULL;
+    }
+
+    if (process_list->head == NULL) {
+        process_list->head = new;
+    } else {
+        process_list->tail->next = new;
+    }
+    process_list->tail = new;
+
+    new->pid = -1;
     char *stack = malloc(STACK_SIZE);
     if (stack == NULL) {
         printf("Error on allocating stack\n");
         exit(EXIT_FAILURE);
     }
-    current->stack_top = stack + STACK_SIZE;
-    current->pid = -1;
-    current->channel = mmap(NULL, sizeof(struct channel *) * MICROKIT_MAX_CHANNELS,
-        PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-    if (current->channel == MAP_FAILED) {
-        printf("Error on allocating channel\n");
-        exit(EXIT_FAILURE);
-    }
-    if (pipe(current->pipefd) == -1) {
+    new->stack_top = stack + STACK_SIZE;
+    new->channel_map = kh_init(channel);
+    if (pipe(new->pipefd) == -1) {
         printf("Error on creating pipe\n");
         exit(EXIT_FAILURE);
     }
 
-    return current;
+    return new;
 }
 
-struct process *search_process(int pid) {
-    struct process *current = process_list;
-    while (current != NULL && current->pid != pid) {
-        current = current->next;
-    }
-    if (current == NULL) {
-        printf("Could not find process with pid %d\n", pid);
+void create_channel(struct process *from, struct process *to, microkit_channel ch) {
+    int ret;
+    khiter_t iter = kh_put(channel, from->channel_map, ch, &ret);
+    if (ret == -1) {
+        printf("Error on adding to hash map\n");
         exit(EXIT_FAILURE);
     }
-    return current;
-}
-
-struct channel *create_channel(struct process *to, microkit_channel ch) {
-    struct channel *current = channel_list;
-    if (current == NULL) {
-        channel_list = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-        if (channel_list == MAP_FAILED) {
-            printf("Error on allocating shared buffer\n");
-            exit(EXIT_FAILURE);
-        }
-        current = channel_list;
-    } else {
-        while (current->next != NULL) {
-            current = current->next;
-        }
-        current->next = mmap(NULL, sizeof(struct channel), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-        if (current->next == MAP_FAILED) {
-            printf("Error on allocating channel\n");
-            exit(EXIT_FAILURE);
-        }
-        current = current->next;
-    }
-
-    current->channel_id = ch;
-    current->to = to;
-    current->next = NULL;
-
-    return current;
+    kh_value(from->channel_map, iter) = to;
 }
 
 struct shared_memory *create_shared_memory(char *name, int size) {
-    struct shared_memory *current = shared_memory_list;
-    if (current == NULL) {
-        shared_memory_list = malloc(sizeof(struct shared_memory));
-        if (shared_memory_list == NULL) {
-            printf("Error on allocating shared buffer\n");
-            exit(EXIT_FAILURE);
-        }
-        current = shared_memory_list;
-    } else {
-        while (current->next != NULL) {
-            current = current->next;
-        }
-        current->next = malloc(sizeof(struct shared_memory));
-        if (current->next == NULL) {
-            printf("Error on allocating shared buffer\n");
-            exit(EXIT_FAILURE);
-        }
-        current = current->next;
+    struct shared_memory *new = malloc(sizeof(struct shared_memory));
+    if (new == NULL) {
+        printf("Error on allocating shared memory\n");
+        exit(EXIT_FAILURE);
     }
 
-    current->shared_buffer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
-    if (current->shared_buffer == MAP_FAILED) {
+    if (shared_memory_list == NULL) {
+        shared_memory_list = malloc(sizeof(struct shared_memory_list));
+        shared_memory_list->head = NULL;
+        shared_memory_list->tail = NULL;
+    }
+
+    if (shared_memory_list->head == NULL) {
+        shared_memory_list->head = new;
+    } else {
+        shared_memory_list->tail->next = new;
+    }
+
+    shared_memory_list->tail = new;
+    new->shared_buffer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+    if (new->shared_buffer == MAP_FAILED) {
         printf("Error on allocating shared buffer\n");
         exit(EXIT_FAILURE);
     }
-    current->size = size;
-    current->name = name;
-    current->next = NULL;
+    new->size = size;
+    new->name = name;
+    new->next = NULL;
 
-    return current;
+    return new;
 }
 
 void free_processes() {
-    while (process_list != NULL) {
-        struct process *next = process_list->next;
-        free(process_list->stack_top - STACK_SIZE);
-        munmap(process_list, sizeof(struct process));
-        process_list = next;
+    while (process_list->head != NULL) {
+        struct process *next = process_list->head->next;
+        free(process_list->head->stack_top - STACK_SIZE);
+        kh_free(channel, process_list->head->channel_map);
+        free(process_list->head);
+        process_list->head = next;
     }
-}
-
-void free_channels() {
-    while (channel_list != NULL) {
-        struct channel *next = channel_list->next;
-        munmap(channel_list, sizeof(struct channel));
-        channel_list = next;
-    }
+    free(process_list);
 }
 
 void free_shared_memory() {
-    while (shared_memory_list != NULL) {
-        struct shared_memory *next = shared_memory_list->next;
-        munmap(shared_memory_list->shared_buffer, shared_memory_list->size);
-        munmap(shared_memory_list, sizeof(struct shared_memory));
-        shared_memory_list = next;
+    while (shared_memory_list->head != NULL) {
+        struct shared_memory *next = shared_memory_list->head->next;
+        struct shared_memory *curr = shared_memory_list->head;
+        munmap(curr->shared_buffer, curr->size);
+        free(curr);
+        shared_memory_list->head = next;
     }
+    free(shared_memory_list);
 }

@@ -4,14 +4,13 @@
 #include <stdio.h>
 
 void microkit_notify(microkit_channel ch) {
-    struct channel **current = search_process(getpid())->channel;
-    for (int i = 0; current[i] != NULL; i++) {
-        if (current[i]->channel_id == ch) {
-            write(current[i]->to->pipefd[PIPE_WRITE_FD], &(current[i]->channel_id), sizeof(microkit_channel));
-            return;
-        }
+    extern struct info *info;
+    khash_t(channel) *channel_map = info->process->channel_map;
+    khiter_t iter = kh_get(channel, channel_map, ch);
+    if (kh_key(channel_map, iter) != ch) {
+        printf("Channel id %u is not a valid channel\n", ch);
+        exit(EXIT_FAILURE);
     }
-
-    printf("Channel id %u is not a valid channel\n", ch);
-    exit(EXIT_FAILURE);
+    struct process *to = kh_value(channel_map, iter);
+    write(to->pipefd[PIPE_WRITE_FD], &ch, sizeof(microkit_channel));
 }

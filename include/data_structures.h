@@ -1,25 +1,31 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <search.h>
+#include <khash.h>
 
 #define PIPE_READ_FD 0
 #define PIPE_WRITE_FD 1
 
 typedef unsigned int microkit_channel;
 
+KHASH_MAP_INIT_INT(channel, struct process *)
+
+struct process_list {
+    struct process *head;
+    struct process *tail;
+};
+
 struct process {
     pid_t pid;
     char *stack_top;
     pid_t pipefd[2];
-    struct channel **channel;
+    khash_t(channel) *channel_map;
     struct process *next;
 };
 
-struct channel {
-    microkit_channel channel_id;
-    struct process *to;
-    struct channel *next;
+struct shared_memory_list {
+    struct shared_memory *head;
+    struct shared_memory *tail;
 };
 
 struct shared_memory {
@@ -29,11 +35,14 @@ struct shared_memory {
     struct shared_memory *next;
 };
 
+struct info {
+    struct process *process;
+    const char *path;
+};
+
 struct process *create_process();
 
-struct process *search_process(int pid);
-
-struct channel *create_channel(struct process *to, microkit_channel ch);
+void create_channel(struct process *from, struct process *to, microkit_channel ch);
 
 struct shared_memory *create_shared_memory(char *name, int size);
 
