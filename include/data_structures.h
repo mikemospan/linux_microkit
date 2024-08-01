@@ -44,10 +44,8 @@ struct process *create_process();
 
 void create_channel(struct process *from, struct process *to, microkit_channel ch);
 
-struct shared_memory *create_shared_memory(char *name, int size);
+void create_shared_memory(char *name, int size);
 
 void free_processes();
-
-void free_channels();
 
 void free_shared_memory();

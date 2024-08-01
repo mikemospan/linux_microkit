@@ -53,7 +53,7 @@ void create_channel(struct process *from, struct process *to, microkit_channel c
     kh_value(from->channel_map, iter) = to;
 }
 
-struct shared_memory *create_shared_memory(char *name, int size) {
+void create_shared_memory(char *name, int size) {
     struct shared_memory *new = malloc(sizeof(struct shared_memory));
     if (new == NULL) {
         printf("Error on allocating shared memory\n");
@@ -81,8 +81,6 @@ struct shared_memory *create_shared_memory(char *name, int size) {
     new->size = size;
     new->name = name;
     new->next = NULL;
-
-    return new;
 }
 
 void free_processes() {
