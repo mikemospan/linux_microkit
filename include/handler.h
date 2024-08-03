@@ -9,7 +9,7 @@
 #define MICROKIT_MAX_CHANNELS 62
 #define MICROKIT_MAX_SHARED_MEMORY 62
 
-extern struct process *process_stack;
+extern khash_t(process) *process_map;
 extern struct shared_memory *shared_memory_stack;
 
 int event_handler(void *arg);

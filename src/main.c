@@ -5,7 +5,10 @@
 #include <sched.h>
 #include <sys/wait.h>
 
-static void run_process(struct process *process, const char *path) {
+static void run_process(const char *proc, const char *path) {
+    khiter_t piter = kh_get(process, process_map, proc);
+    struct process *process = kh_value(process_map, piter);
+
     struct info *info = malloc(sizeof(struct info));
     info->path = path;
     info->process = process;
@@ -21,8 +24,8 @@ static void run_process(struct process *process, const char *path) {
 
 int main(void) {
     // Create our processes to act in place of protection domains
-    struct process *p1 = create_process();
-    struct process *p2 = create_process();
+    create_process("server");
+    create_process("client");
 
     // Create our shared memory and initialise it
     create_shared_memory("buffer", SHARED_MEM_SIZE);
@@ -30,21 +33,20 @@ int main(void) {
     // Create our pipes and channels for interprocess communication
     microkit_channel channel1_id = 1;
     microkit_channel channel2_id = 2;
-    create_channel(p1, p2, channel1_id);
-    create_channel(p2, p1, channel2_id);
+    create_channel("server", "client", channel1_id);
+    create_channel("client", "server", channel2_id);
 
     // Start running the specified processes
-    run_process(p1, "./user/server.so");
-    run_process(p2, "./user/client.so");
+    run_process("server", "./user/server.so");
+    run_process("client", "./user/client.so");
 
     // Wait for the child processes to finish before leaving
-    struct process *curr = process_stack;
-    while (curr != NULL) {
-        if (waitpid(curr->pid, NULL, 0) == -1) {
+    for (khint_t k = kh_begin(h); k != kh_end(process_map); ++k) {
+        struct process *process = kh_value(process_map, k);
+        if (waitpid(process->pid, NULL, 0) == -1) {
             printf("Error on waitpid\n");
             return -1;
         }
-        curr = curr->next;
     }
 
     // Unmap and free all used heap memory
