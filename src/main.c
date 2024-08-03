@@ -9,9 +9,13 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-#define function_executor(fn, arg1) fn(arg1)
+#define MAX_LINE_LENGTH 512
+#define MAX_FUNC_AND_ARG_LENGTH 128
 
-static void run_process(struct process *process, const char *path) {
+static void run_process(char *proc, char *path) {
+    khiter_t piter = kh_get(process, process_map, proc);
+    struct process *process = kh_value(process_map, piter);
+
     struct info *info = malloc(sizeof(struct info));
     info->path = path;
     info->process = process;
@@ -23,60 +27,58 @@ static void run_process(struct process *process, const char *path) {
     }
 }
 
-static char remove_whitespace(FILE *system) {
-    char c;
-    while (isspace(c = fgetc(system)));
-    if (c == EOF) {
-        return EOF;
-    }
-    fseek(system, -2, SEEK_CUR);
-    return fgetc(system);
-}
+static void run_function(char line[MAX_LINE_LENGTH]) {
+    char *func = strtok(line, " ");
+    if (strcmp(func, "create_shared_memory") == 0) {
+        char *name = malloc(MAX_FUNC_AND_ARG_LENGTH);
+        memcpy(name, strtok(NULL, " "), MAX_FUNC_AND_ARG_LENGTH);
+        
+        int size = strtol(strtok(NULL, " "), NULL, 0);
 
-static void match_memory_region(char line[4096]) {
-    int j = 14;
-    if (strncmp(line, "<memory_region", j) != 0) return;
-    char new_line[4096];
-    for (int i = j; line[i] != '\\' && line[i+1] != '>'; i++) {
-        if (isspace(line[i]) && line[i-1] != '"') {
-            j++;
-        } else {
-            new_line[i - j] = line[i];
-            new_line[i - j + 1] = '\0';
-        }
-    }
-    printf("%s\n", new_line);
-}
+        create_shared_memory(name, size);
+    } else if (strcmp(func, "create_process") == 0) {
+        char *name = malloc(MAX_FUNC_AND_ARG_LENGTH);
+        memcpy(name, strtok(NULL, " "), MAX_FUNC_AND_ARG_LENGTH);
+        name[strlen(name) - 1] = '\0';
 
-static void load_line(FILE *system, char *c, char line[4096]) {
-    for (int i = 0; (*c = fgetc(system)) != EOF; i++) {
-        if (*c == '\n') {
-            *c = remove_whitespace(system);
-        }
-        line[i] = *c;
-        line[i + 1] = '\0';
-        if (*c == '>') {
-            break;
-        }
-    }
-}
+        create_process(name);
+    } else if (strcmp(func, "add_shared_memory") == 0) {
+        char *proc_name = malloc(MAX_FUNC_AND_ARG_LENGTH);
+        memcpy(proc_name, strtok(NULL, " "), MAX_FUNC_AND_ARG_LENGTH);
 
-static void load_system_file(const char *path) {
-    FILE *system = fopen(path, "r");
-    if (system == NULL) {
-        printf("Could not find system file.\n");
-        exit(EXIT_FAILURE);
-    }
+        char *shm_name = malloc(MAX_FUNC_AND_ARG_LENGTH);
+        memcpy(shm_name, strtok(NULL, " "), MAX_FUNC_AND_ARG_LENGTH);
+        shm_name[strlen(shm_name) - 1] = '\0';
 
-    char c;
-    while ((c = remove_whitespace(system)) != EOF) {
-        char line[4096];
-        load_line(system, &c, line);
-        match_memory_region(line);
+        add_shared_memory(proc_name, shm_name);
+        free(proc_name);
+        free(shm_name);
+    } else if (strcmp(func, "create_channel") == 0) {
+        char *from = malloc(MAX_FUNC_AND_ARG_LENGTH);
+        memcpy(from, strtok(NULL, " "), MAX_FUNC_AND_ARG_LENGTH);
+
+        char *to = malloc(MAX_FUNC_AND_ARG_LENGTH);
+        memcpy(to, strtok(NULL, " "), MAX_FUNC_AND_ARG_LENGTH);
+
+        int ch = strtol(strtok(NULL, " "), NULL, 0);
+
+        create_channel(from, to, ch);
+        free(from);
+        free(to);
+    } else if (strcmp(func, "run_process") == 0) {
+        char *process = malloc(MAX_FUNC_AND_ARG_LENGTH);
+        memcpy(process, strtok(NULL, " "), MAX_FUNC_AND_ARG_LENGTH);
+
+        char *elf = malloc(MAX_FUNC_AND_ARG_LENGTH);
+        memcpy(elf, strtok(NULL, " "), MAX_FUNC_AND_ARG_LENGTH);
+        elf[strlen(elf) - 1] = '\0';
+
+        run_process(process, elf);
+        free(process);
     }
 }
 
-static void load_python() {
+void start_loader() {
     pid_t pid = fork();
     if (pid == 0) {
         execl("/usr/bin/python3", "python3", "./src/loader.py", (char *) NULL);
@@ -85,8 +87,8 @@ static void load_python() {
     
     int fd = inotify_init();
     int wd = inotify_add_watch(fd, "./src", IN_MODIFY | IN_CREATE);
-    char buffer[1024];
-    int length = read(fd, buffer, 1024);
+    char buffer[MAX_LINE_LENGTH];
+    int length = read(fd, buffer, MAX_LINE_LENGTH);
 
     if (length < 0) {
         perror("read");
@@ -96,62 +98,35 @@ static void load_python() {
         int i = 0;
         while (i < length) {
             struct inotify_event *event = (struct inotify_event *) &buffer[i];
-            if (event->len) {
-                if (((event->mask & IN_CREATE) || (event->mask & IN_MODIFY)) && strcmp(event->name, "loader.txt") == 0) {
-                    FILE *system = fopen("./src/loader.txt", "r");
-                    if (!system) {
-                        perror("fopen");
-                    }
-                    char line[1024];
-                    while (fgets(line, sizeof(line), system) != NULL) {
-                        printf("%s", line);
-                    }
-                    fclose(system);
-                    return;
-                }
+            if (((event->mask & IN_CREATE) || (event->mask & IN_MODIFY)) && strcmp(event->name, "loader.txt") == 0) {
+                inotify_rm_watch(fd, wd);
+                close(fd);
+                return;
             }
             i += sizeof(struct inotify_event) + event->len;
         }
     }
-
-    inotify_rm_watch(fd, wd);
-    close(fd);
-}
-
-static void print(char *str) {
-    printf("%s\n", str);
 }
 
 /* MAIN FUNCTION ACTING AS A SETUP FOR ALL NECESSARY OBJECTS */
 
 int main(void) {
-    // Create our processes to act in place of protection domains
-    struct process *p1 = create_process();
-    struct process *p2 = create_process();
+    start_loader();
 
-    // Create our shared memory and initialise it
-    create_shared_memory("buffer", SHARED_MEM_SIZE);
-    add_shared_memory(p1, "buffer");
-    add_shared_memory(p2, "buffer");
-
-    // Create our pipes and channels for interprocess communication
-    microkit_channel channel1_id = 1;
-    microkit_channel channel2_id = 2;
-    create_channel(p1, p2, channel1_id);
-    create_channel(p2, p1, channel2_id);
-
-    // Start running the specified processes
-    run_process(p1, "./user/server.so");
-    run_process(p2, "./user/client.so");
+    FILE *system = fopen("./src/loader.txt", "r");
+    char line[MAX_LINE_LENGTH];
+    while (fgets(line, sizeof(line), system) != NULL) {
+        run_function(line);
+    }
+    fclose(system);
 
     // Wait for the child processes to finish before leaving
-    struct process *curr = process_stack;
-    while (curr != NULL) {
-        if (waitpid(curr->pid, NULL, 0) == -1) {
+    for (khint_t k = kh_begin(h); k != kh_end(process_map); ++k) {
+        struct process *process = kh_value(process_map, k);
+        if (waitpid(process->pid, NULL, 0) == -1) {
             printf("Error on waitpid\n");
             return -1;
         }
-        curr = curr->next;
     }
 
     // Unmap and free all used heap memory

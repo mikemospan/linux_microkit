@@ -4,11 +4,10 @@
 
 #define PAGE_SIZE 4096
 #define STACK_SIZE PAGE_SIZE
-#define SHARED_MEM_SIZE PAGE_SIZE
 
 #define MICROKIT_MAX_CHANNELS 62
-#define MICROKIT_MAX_SHARED_MEMORY 62
 
-extern struct process *process_stack;
+extern khash_t(process) *process_map;
+extern khash_t(shared_memory) *shared_memory_map;
 
 int event_handler(void *arg);

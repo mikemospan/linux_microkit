@@ -80,6 +80,7 @@ int event_handler(void *arg) {
     }
 
     dlclose(handle);
+    free(info->path);
     free(info);
     return 0;
 }

@@ -8,6 +8,7 @@
 
 typedef unsigned int microkit_channel;
 
+KHASH_MAP_INIT_STR(process, struct process *)
 KHASH_MAP_INIT_INT(channel, struct process *)
 KHASH_MAP_INIT_STR(shared_memory, struct shared_memory *)
 
@@ -33,15 +34,15 @@ struct shared_memory {
 
 struct info {
     struct process *process;
-    const char *path;
+    char *path;
 };
 
-struct process *create_process();
+void create_process(const char *name);
 
-void create_channel(struct process *from, struct process *to, microkit_channel ch);
+void create_channel(const char *from, const char *to, microkit_channel ch);
 
 void create_shared_memory(char *name, int size);
 
-void add_shared_memory(struct process *process, char *name);
+void add_shared_memory(const char *proc, char *name);
 
 void free_resources();

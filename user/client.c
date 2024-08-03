@@ -2,7 +2,7 @@
 
 #include <microkit.h>
 
-#define SERVER_CHANNEL_ID 2
+#define SERVER_CHANNEL_ID 1
 
 unsigned long buffer;
 

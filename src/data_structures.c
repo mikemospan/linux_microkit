@@ -4,17 +4,16 @@
 
 #include <sys/mman.h>
 
-struct process *process_stack = NULL;
+khash_t(process) *process_map = NULL;
 khash_t(shared_memory) *shared_memory_map = NULL;
 
-struct process *create_process() {
+void create_process(const char *name) {
     struct process *new = malloc(sizeof(struct process));
     if (new == NULL) {
         printf("Error on allocating process\n");
         exit(EXIT_FAILURE);
     }
 
-    new->pid = -1;
     char *stack = malloc(STACK_SIZE);
     if (stack == NULL) {
         printf("Error on allocating stack\n");
@@ -27,22 +26,34 @@ struct process *create_process() {
         printf("Error on creating pipe\n");
         exit(EXIT_FAILURE);
     }
+    new->pid = -1;
 
-    struct process *next = process_stack;
-    process_stack = new;
-    process_stack->next = next;
-
-    return new;
-}
-
-void create_channel(struct process *from, struct process *to, microkit_channel ch) {
+    if (process_map == NULL) {
+        process_map = kh_init(process);
+    }
     int ret;
-    khiter_t iter = kh_put(channel, from->channel_map, ch, &ret);
+    khiter_t iter = kh_put(process, process_map, name, &ret);
     if (ret == -1) {
         printf("Error on adding to hash map\n");
         exit(EXIT_FAILURE);
     }
-    kh_value(from->channel_map, iter) = to;
+    kh_value(process_map, iter) = new;
+}
+
+void create_channel(const char *from, const char *to, microkit_channel ch) {
+    khiter_t piter = kh_get(process, process_map, from);
+    struct process *from_process = kh_value(process_map, piter);
+
+    piter = kh_get(process, process_map, to);
+    struct process *to_process = kh_value(process_map, piter);
+
+    int ret;
+    khiter_t iter = kh_put(channel, from_process->channel_map, ch, &ret);
+    if (ret == -1) {
+        printf("Error on adding to hash map\n");
+        exit(EXIT_FAILURE);
+    }
+    kh_value(from_process->channel_map, iter) = kh_value(process_map, piter);
 }
 
 void create_shared_memory(char *name, int size) {
@@ -72,7 +83,14 @@ void create_shared_memory(char *name, int size) {
     kh_value(shared_memory_map, iter) = new;
 }
 
-void add_shared_memory(struct process *process, char *name) {
+void add_shared_memory(const char *proc, char *name) {
+    khiter_t piter = kh_get(process, process_map, proc);
+    if (strcmp(kh_key(process_map, piter), proc) != 0) {
+        printf("The mapping %s is invalid.\n", proc);
+        exit(EXIT_FAILURE);
+    }
+    struct process *process = kh_value(process_map, piter);
+
     khiter_t iter = kh_get(shared_memory, shared_memory_map, name);
     if (strcmp(kh_key(shared_memory_map, iter), name) != 0) {
         printf("The mapping %s is invalid.\n", name);
@@ -86,17 +104,18 @@ void add_shared_memory(struct process *process, char *name) {
 }
 
 void free_resources() {
-    kh_destroy(shared_memory, shared_memory_map);
-    while (process_stack != NULL) {
-        struct process *next_process = process_stack->next;
-        free(process_stack->stack_top - STACK_SIZE);
-        kh_free(channel, process_stack->channel_map);
-        while (process_stack->shared_memory != NULL) {
-            struct shared_memory_stack *next = process_stack->shared_memory->next;
-            free(process_stack->shared_memory);
-            process_stack->shared_memory = next;
+    for (khint_t k = kh_begin(h); k != kh_end(process_map); ++k) {
+        struct process *process = kh_value(process_map, k);
+        free(process->stack_top - STACK_SIZE);
+        struct shared_memory_stack *shared_memory = process->shared_memory;
+        while (shared_memory != NULL) {
+            struct shared_memory_stack *next = process->shared_memory->next;
+            free(shared_memory);
+            shared_memory = next;
         }
-        free(process_stack);
-        process_stack = next_process;
+        free(process->shared_memory);
+        kh_free(channel, process->channel_map);
     }
+    kh_destroy(shared_memory, shared_memory_map);
+    kh_destroy(process, process_map);
 }
