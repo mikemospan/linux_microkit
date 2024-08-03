@@ -11,12 +11,12 @@ struct info *info;
 
 /* HELPER FUNCTIONS */
 
-static void set_shared_memory(void *handle) {
-    struct shared_memory *curr = shared_memory_stack;
+static void set_shared_memory(void *handle, struct process *process) {
+    struct shared_memory_stack *curr = process->shared_memory;
     while (curr != NULL) {
-        unsigned long *buff = (unsigned long *) dlsym(handle, curr->name);
+        unsigned long *buff = (unsigned long *) dlsym(handle, curr->shm->name);
         if (dlerror() == NULL) {
-            *buff = (unsigned long) curr->shared_buffer;
+            *buff = (unsigned long) curr->shm->shared_buffer;
         }
         curr = curr->next;
     }
@@ -55,7 +55,7 @@ int event_handler(void *arg) {
         exit(EXIT_FAILURE);
     }
 
-    set_shared_memory(handle);
+    set_shared_memory(handle, info->process);
     execute_init(handle);
     
     // Declare and initialise necessary variables for polling from pipe

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<system>
+    <memory_region name="buffer" size="0x1000" phys_addr="0x9010000" />
+
+    <protection_domain name="server">
+        <program_image path="server.elf"/>
+        <map mr="buffer" vaddr="0x4000000" perms="rw" cached="false"
+            setvar_vaddr="rtc_base_vaddr" />
+    </protection_domain>
+
+    <protection_domain name="client">
+        <program_image path="client.elf"/>
+        <map mr="buffer" vaddr="0x4000000" perms="rw" cached="false"
+            setvar_vaddr="rtc_base_vaddr" />
+    </protection_domain>
+
+    <channel>
+        <end pd="client" id="1" />
+        <end pd="server" id="2" />
+    </channel>
+</system>

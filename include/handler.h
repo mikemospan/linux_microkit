@@ -10,6 +10,5 @@
 #define MICROKIT_MAX_SHARED_MEMORY 62
 
 extern struct process *process_stack;
-extern struct shared_memory *shared_memory_stack;
 
 int event_handler(void *arg);

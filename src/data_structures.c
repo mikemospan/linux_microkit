@@ -5,7 +5,7 @@
 #include <sys/mman.h>
 
 struct process *process_stack = NULL;
-struct shared_memory *shared_memory_stack = NULL;
+khash_t(shared_memory) *shared_memory_map = NULL;
 
 struct process *create_process() {
     struct process *new = malloc(sizeof(struct process));
@@ -22,6 +22,7 @@ struct process *create_process() {
     }
     new->stack_top = stack + STACK_SIZE;
     new->channel_map = kh_init(channel);
+    new->shared_memory = NULL;
     if (pipe(new->pipefd) == -1) {
         printf("Error on creating pipe\n");
         exit(EXIT_FAILURE);
@@ -58,28 +59,44 @@ void create_shared_memory(char *name, int size) {
     }
     new->size = size;
     new->name = name;
-    new->next = NULL;
 
-    struct shared_memory *next = shared_memory_stack;
-    shared_memory_stack = new;
-    shared_memory_stack->next = next;
+    if (shared_memory_map == NULL) {
+        shared_memory_map = kh_init(shared_memory);
+    }
+    int ret;
+    khiter_t iter = kh_put(shared_memory, shared_memory_map, name, &ret);
+    if (ret == -1) {
+        printf("Error on adding to hash map\n");
+        exit(EXIT_FAILURE);
+    }
+    kh_value(shared_memory_map, iter) = new;
 }
 
-void free_processes() {
+void add_shared_memory(struct process *process, char *name) {
+    khiter_t iter = kh_get(shared_memory, shared_memory_map, name);
+    if (strcmp(kh_key(shared_memory_map, iter), name) != 0) {
+        printf("The mapping %s is invalid.\n", name);
+        exit(EXIT_FAILURE);
+    }
+    struct shared_memory *shared_memory = kh_value(shared_memory_map, iter);
+    struct shared_memory_stack *head = process->shared_memory;
+    process->shared_memory = malloc(sizeof(struct shared_memory_stack));
+    process->shared_memory->shm = shared_memory;
+    process->shared_memory->next = head;
+}
+
+void free_resources() {
+    kh_destroy(shared_memory, shared_memory_map);
     while (process_stack != NULL) {
-        struct process *next = process_stack->next;
+        struct process *next_process = process_stack->next;
         free(process_stack->stack_top - STACK_SIZE);
         kh_free(channel, process_stack->channel_map);
+        while (process_stack->shared_memory != NULL) {
+            struct shared_memory_stack *next = process_stack->shared_memory->next;
+            free(process_stack->shared_memory);
+            process_stack->shared_memory = next;
+        }
         free(process_stack);
-        process_stack = next;
-    }
-}
-
-void free_shared_memory() {
-    while (shared_memory_stack != NULL) {
-        struct shared_memory *next = shared_memory_stack->next;
-        munmap(shared_memory_stack->shared_buffer, shared_memory_stack->size);
-        free(shared_memory_stack);
-        shared_memory_stack = next;
+        process_stack = next_process;
     }
 }
