@@ -4,10 +4,7 @@
 
 #include <sched.h>
 #include <sys/wait.h>
-#include <ctype.h>
 #include <sys/inotify.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
 
 #define MAX_LINE_LENGTH 512
 #define MAX_FUNC_AND_ARG_LENGTH 128

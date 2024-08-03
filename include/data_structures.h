@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/types.h>
 #include <khash.h>
 
 #define PIPE_READ_FD 0
