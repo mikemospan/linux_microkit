@@ -1,23 +1,34 @@
-export C_INCLUDE_PATH=./include
+NPROCS = $(shell nproc)
+MAKEFLAGS += -j$(NPROCS)
 
 USR_DIR = ./user
 SRC_DIR = ./src
-
 USRS = $(wildcard $(USR_DIR)/*.c)
 SRCS = $(wildcard $(SRC_DIR)/*.c)
-
+OBJS = $(SRCS:.c=.o)
 USRS_TARGET = $(USRS:.c=.so)
+CFLAGS = -g -Wall -I./include
+LDFLAGS = -L. -lmain -Wl,-rpath,.
 
 .PHONY: all clean
 
-all: main $(USRS_TARGET)
+all: build cleanup
 
-# Compile each .c file into a .so file
-$(USR_DIR)/%.so: $(USR_DIR)/%.c
-	gcc -fPIC -shared -o $@ $<
+build: libmain.so $(USRS_TARGET)
 
-main: $(SRCS)
-	gcc -rdynamic -o $@ $^ -ldl
+%.o: %.c
+	gcc $(CFLAGS) -fPIC -c $< -o $@
+
+libmain.so: $(OBJS)
+	gcc $(CFLAGS) -shared -o $@ $^
+	@touch $@
+
+$(USR_DIR)/%.so: $(USR_DIR)/%.c libmain.so
+	gcc $(CFLAGS) -fPIC -shared -o $@ $< $(LDFLAGS)
+
+cleanup: build
+	@echo "Cleaning up object files..."
+	@rm -f $(OBJS)
 
 clean:
-	rm -f main $(USR_DIR)/*.o $(USR_DIR)/*.so
+	rm -f main $(USR_DIR)/*.o $(USR_DIR)/*.so libmain.so $(OBJS) .cleanup

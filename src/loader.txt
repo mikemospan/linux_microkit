@@ -1,9 +1,0 @@
-create_shared_memory buffer 0x1000
-create_process server
-add_shared_memory server buffer
-create_process client
-add_shared_memory client buffer
-create_channel client server 1
-create_channel server client 2
-run_process server ./user/server.so
-run_process client ./user/client.so

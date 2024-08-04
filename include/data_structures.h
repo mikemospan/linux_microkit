@@ -36,13 +36,3 @@ struct info {
     struct process *process;
     char *path;
 };
-
-void create_process(const char *name);
-
-void create_channel(const char *from, const char *to, microkit_channel ch);
-
-void create_shared_memory(char *name, int size);
-
-void add_shared_memory(const char *proc, char *name);
-
-void free_resources();
