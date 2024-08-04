@@ -107,16 +107,18 @@ void add_shared_memory(const char *proc, const char *name) {
 
 void free_resources() {
     for (khint_t k = kh_begin(h); k != kh_end(process_map); ++k) {
-        struct process *process = kh_value(process_map, k);
-        free(process->stack_top - STACK_SIZE);
-        struct shared_memory_stack *shared_memory = process->shared_memory;
-        while (shared_memory != NULL) {
-            struct shared_memory_stack *next = process->shared_memory->next;
-            free(shared_memory);
-            shared_memory = next;
+        if (kh_exist(process_map, k)) {
+            struct process *process = kh_value(process_map, k);
+            kill(process->pid, SIGTERM);
+            free(process->stack_top - STACK_SIZE);
+            struct shared_memory_stack *shared_memory = process->shared_memory;
+            while (shared_memory != NULL) {
+                struct shared_memory_stack *next = process->shared_memory->next;
+                free(shared_memory);
+                shared_memory = next;
+            }
+            kh_free(channel, process->channel_map);
         }
-        free(process->shared_memory);
-        kh_free(channel, process->channel_map);
     }
     kh_destroy(shared_memory, shared_memory_map);
     kh_destroy(process, process_map);
@@ -141,9 +143,7 @@ void block_until_finish() {
     for (khint_t k = kh_begin(h); k != kh_end(process_map); ++k) {
         struct process *process = kh_value(process_map, k);
         if (waitpid(process->pid, NULL, 0) == -1) {
-            printf("Error on waitpid\n");
             return;
         }
     }
-    free_resources();
 }

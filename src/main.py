@@ -43,4 +43,8 @@ for channel in root.findall("channel"):
 for tuple in process_and_elf:
     libds.run_process(tuple[0], tuple[1])
 
-libds.block_until_finish()
+try:
+    libds.block_until_finish()
+except:
+    print("EXITING THE MICROKIT")
+libds.free_resources()
