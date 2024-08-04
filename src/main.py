@@ -1,5 +1,11 @@
 import ctypes
 import xml.etree.ElementTree as ET
+import signal
+
+def handler(signum, frame):
+    print("\nEXITING THE MICROKIT")
+
+signal.signal(signal.SIGTSTP, handler)
 
 root = ET.parse("./user/example.system").getroot()
 
@@ -46,5 +52,5 @@ for tuple in process_and_elf:
 try:
     libds.block_until_finish()
 except:
-    print("EXITING THE MICROKIT")
+    print("\nEXITING THE MICROKIT")
 libds.free_resources()
