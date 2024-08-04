@@ -3,13 +3,13 @@
     <memory_region name="buffer" size="0x1000" phys_addr="0x9010000" />
 
     <protection_domain name="server">
-        <program_image path="server.elf"/>
+        <program_image path="./example/build/server.elf"/>
         <map mr="buffer" vaddr="0x4000000" perms="rw" cached="false"
             setvar_vaddr="rtc_base_vaddr" />
     </protection_domain>
 
     <protection_domain name="client">
-        <program_image path="client.elf"/>
+        <program_image path="./example/build/client.elf"/>
         <map mr="buffer" vaddr="0x4000000" perms="rw" cached="false"
             setvar_vaddr="rtc_base_vaddr" />
     </protection_domain>

@@ -7,9 +7,9 @@ def handler(signum, frame):
 
 signal.signal(signal.SIGTSTP, handler)
 
-root = ET.parse("./user/example.system").getroot()
+root = ET.parse("./example/example.system").getroot()
 
-libds = ctypes.CDLL('./libmain.so')
+libds = ctypes.CDLL('./libmicrokit.so')
 libds.create_shared_memory.argtypes = [ctypes.c_char_p, ctypes.c_int]
 libds.create_process.argtypes = [ctypes.c_char_p]
 libds.add_shared_memory.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
@@ -31,7 +31,7 @@ for domain in root.findall("protection_domain"):
     libds.add_shared_memory(domain_name, domain_map_name)
 
     domain_image = domain.find("program_image")
-    domain_image_path = "./user/" + domain_image.get("path")[:-3] + "so"
+    domain_image_path = domain_image.get("path")[:-3] + "so"
     domain_image_path = ctypes.create_string_buffer(domain_image_path.encode())
     process_and_elf.append((domain_name, domain_image_path))
 
