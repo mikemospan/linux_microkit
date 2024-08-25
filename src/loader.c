@@ -24,11 +24,10 @@ void create_process(const char *name) {
     new->stack_top = stack + STACK_SIZE;
     new->channel_map = kh_init(channel);
     new->shared_memory = NULL;
-    if (pipe(new->pipefd) == -1) {
+    if (pipe(new->notif_pipe) == -1 || pipe(new->ppc_pipe) == -1) {
         printf("Error on creating pipe\n");
         exit(EXIT_FAILURE);
     }
-    new->pid = -1;
 
     if (process_map == NULL) {
         process_map = kh_init(process);
@@ -127,12 +126,8 @@ void free_resources() {
 void run_process(char *proc, char *path) {
     khiter_t piter = kh_get(process, process_map, proc);
     struct process *process = kh_value(process_map, piter);
-
-    struct info *info = malloc(sizeof(struct info));
-    info->path = path;
-    info->process = process;
-
-    process->pid = clone(event_handler, process->stack_top, SIGCHLD, (void *) info);
+    process->path = path;
+    process->pid = clone(event_handler, process->stack_top, SIGCHLD, (void *) process);
     if (process->pid == -1) {
         printf("Error on cloning\n");
         exit(EXIT_FAILURE);

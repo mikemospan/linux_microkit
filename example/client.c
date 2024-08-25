@@ -15,3 +15,7 @@ void notified(microkit_channel ch) {
     printf("Notification received by client.\n");
     printf("Client accessing the shared buffer: %s\n", (char *) buffer);
 }
+
+void protected(microkit_channel ch) {
+    printf("Protected Procedure Call Received.\n");
+}

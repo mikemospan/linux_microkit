@@ -35,6 +35,8 @@
         "vector": "c",
         "string_view": "c",
         "initializer_list": "c",
-        "utility": "c"
+        "utility": "c",
+        "khash.h": "c",
+        "signal.h": "c"
     }
 }
