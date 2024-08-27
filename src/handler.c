@@ -5,9 +5,7 @@
 #include <poll.h>
 #include <dlfcn.h>
 
-#define FDS_SIZE 496
-
-struct info *info;
+struct process *proc;
 
 /* HELPER FUNCTIONS */
 
@@ -35,7 +33,7 @@ static void execute_init(void *handle) {
 }
 
 static void execute_notified(void *handle, microkit_channel buf) {
-    void (*notified)(microkit_channel) = (void (*)(microkit_channel)) dlsym(handle, "notified");
+    void (*notified)(microkit_channel) = dlsym(handle, "notified");
     const char *dlsym_error = dlerror();
     if (dlsym_error != NULL) {
         printf("Error finding function \"notified\": %s\n", dlsym_error);
@@ -46,41 +44,53 @@ static void execute_notified(void *handle, microkit_channel buf) {
     notified(buf);
 }
 
+static void execute_protected(void *handle, struct message buf) {
+    microkit_msginfo (*protected)(microkit_channel, microkit_msginfo) = dlsym(handle, "protected");
+    const char *dlsym_error = dlerror();
+    if (dlsym_error != NULL) {
+        printf("Error finding function \"protected\": %s\n", dlsym_error);
+        dlclose(handle);
+        exit(EXIT_FAILURE);
+    }
+
+    protected(buf.ch - MICROKIT_MAX_PDS, buf.msginfo);
+    long info = 1000;
+    write(buf.send_back, &info, sizeof(long));
+}
+
 /* Main child function acting as an event handler */
 int event_handler(void *arg) {
-    info = (struct info *) arg;
-    void *handle = dlopen(info->path, RTLD_LAZY);
+    proc = (struct process *) arg;
+    void *handle = dlopen(proc->path, RTLD_LAZY);
     if (handle == NULL) {
         printf("Error opening file: %s\n", dlerror());
         exit(EXIT_FAILURE);
     }
 
-    set_shared_memory(handle, info->process);
+    set_shared_memory(handle, proc);
     execute_init(handle);
     
     // Declare and initialise necessary variables for polling from pipe
-    struct pollfd *fds = malloc(FDS_SIZE);
+    struct pollfd *fds = malloc(sizeof(struct pollfd));
     if (fds == NULL) {
         printf("Error on allocating poll fds\n");
         return -1;
     }
 
-    fds->fd = info->process->pipefd[PIPE_READ_FD];
+    fds->fd = proc->pipefd[PIPE_READ_FD];
     fds->events = POLLIN;
 
-    // Main event loop for polling for changes in pipes and calling notified accordingly
-    while (ppoll(fds, MICROKIT_MAX_CHANNELS, NULL, NULL)) {
-        for (int i = 0; i < MICROKIT_MAX_CHANNELS; i++) {
-            if (fds[i].revents & POLLIN) {
-                microkit_channel buf;
-                read(fds[i].fd, &buf, sizeof(microkit_channel));
-                execute_notified(handle, buf);
-            }
+    // Main event loop for polling for changes in pipe and calling notified/protected accordingly
+    while (ppoll(fds, 1, NULL, NULL)) {
+        if (fds->revents & POLLIN) {
+            struct message buf;
+            read(fds->fd, &buf, sizeof(struct message));
+            if (buf.ch > MICROKIT_MAX_PDS) execute_protected(handle, buf);
+            else execute_notified(handle, buf.ch);
         }
     }
 
+    free(fds);
     dlclose(handle);
-    free(info->path);
-    free(info);
     return 0;
 }

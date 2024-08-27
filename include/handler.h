@@ -4,11 +4,12 @@
 
 #define PAGE_SIZE 4096
 #define STACK_SIZE PAGE_SIZE
-#define MICROKIT_MAX_CHANNELS 62
+#define MICROKIT_MAX_PDS 63
 #define PIPE_READ_FD 0
 #define PIPE_WRITE_FD 1
 
 typedef unsigned int microkit_channel;
+typedef long * microkit_msginfo;
 
 KHASH_MAP_INIT_STR(process, struct process *)
 KHASH_MAP_INIT_INT(channel, struct process *)
@@ -19,11 +20,12 @@ extern khash_t(shared_memory) *shared_memory_map;
 
 struct process {
     pid_t pid;
+    char *path;
     char *stack_top;
-    pid_t pipefd[2];
-    khash_t(channel) *channel_map;
     struct shared_memory_stack *shared_memory;
-    struct process *next;
+    khash_t(channel) *channel_map;
+    pid_t pipefd[2];
+    pid_t ppc_reply[2];
 };
 
 struct shared_memory_stack {
@@ -37,9 +39,10 @@ struct shared_memory {
     int size;
 };
 
-struct info {
-    struct process *process;
-    char *path;
+struct message {
+    microkit_channel ch;
+    microkit_msginfo msginfo;
+    pid_t send_back;
 };
 
 int event_handler(void *arg);
