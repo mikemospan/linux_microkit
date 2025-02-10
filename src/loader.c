@@ -1,3 +1,11 @@
+/**
+ * This is the main loader file which is called directly by main.py as a DLL.
+ * Its main purpose is to load any dependencies and store all the data related
+ * to the running protection domains before calling `run_process`.
+ * 
+ * Author: Michael Mospan (@mmospan)
+ */
+
 #define _GNU_SOURCE
 
 #include <handler.h>
@@ -6,7 +14,8 @@
 #include <sys/wait.h>
 #include <sched.h>
 
-khash_t(process) *process_map = NULL;
+/* --- Hashmaps used by the program defined in handler.h --- */
+khash_t(process) *process_name_to_info = NULL; // Maps (char *) -> (struct process *)
 khash_t(shared_memory) *shared_memory_map = NULL;
 
 void create_process(const char *name) {
@@ -30,23 +39,23 @@ void create_process(const char *name) {
     }
     new->pid = -1;
 
-    if (process_map == NULL) {
-        process_map = kh_init(process);
+    if (process_name_to_info == NULL) {
+        process_name_to_info = kh_init(process);
     }
     int ret;
-    khiter_t iter = kh_put(process, process_map, strdup(name), &ret);
+    khiter_t iter = kh_put(process, process_name_to_info, strdup(name), &ret);
     if (ret == -1) {
         printf("Error on adding to hash map\n");
         exit(EXIT_FAILURE);
     }
-    kh_value(process_map, iter) = new;
+    kh_value(process_name_to_info, iter) = new;
 }
 
 void create_channel(const char *from, const char *to, microkit_channel ch) {
-    khiter_t piter = kh_get(process, process_map, from);
-    struct process *from_process = kh_value(process_map, piter);
+    khiter_t piter = kh_get(process, process_name_to_info, from);
+    struct process *from_process = kh_value(process_name_to_info, piter);
 
-    piter = kh_get(process, process_map, to);
+    piter = kh_get(process, process_name_to_info, to);
 
     int ret;
     khiter_t iter = kh_put(channel, from_process->channel_map, ch, &ret);
@@ -54,7 +63,7 @@ void create_channel(const char *from, const char *to, microkit_channel ch) {
         printf("Error on adding to hash map\n");
         exit(EXIT_FAILURE);
     }
-    kh_value(from_process->channel_map, iter) = kh_value(process_map, piter);
+    kh_value(from_process->channel_map, iter) = kh_value(process_name_to_info, piter);
 
 }
 
@@ -86,12 +95,12 @@ void create_shared_memory(char *name, int size) {
 }
 
 void add_shared_memory(const char *proc, const char *name) {
-    khiter_t piter = kh_get(process, process_map, proc);
-    if (piter == kh_end(process_map)) {
+    khiter_t piter = kh_get(process, process_name_to_info, proc);
+    if (piter == kh_end(process_name_to_info)) {
         printf("The mapping %s is invalid.\n", proc);
         exit(EXIT_FAILURE);
     }
-    struct process *process = kh_value(process_map, piter);
+    struct process *process = kh_value(process_name_to_info, piter);
 
     khiter_t iter = kh_get(shared_memory, shared_memory_map, name);
     if (iter == kh_end(shared_memory_map)) {
@@ -106,9 +115,9 @@ void add_shared_memory(const char *proc, const char *name) {
 }
 
 void free_resources() {
-    for (khint_t k = kh_begin(h); k != kh_end(process_map); ++k) {
-        if (kh_exist(process_map, k)) {
-            struct process *process = kh_value(process_map, k);
+    for (khint_t k = kh_begin(h); k != kh_end(process_name_to_info); ++k) {
+        if (kh_exist(process_name_to_info, k)) {
+            struct process *process = kh_value(process_name_to_info, k);
             kill(process->pid, SIGTERM);
             free(process->stack_top - STACK_SIZE);
             struct shared_memory_stack *shared_memory = process->shared_memory;
@@ -121,12 +130,12 @@ void free_resources() {
         }
     }
     kh_destroy(shared_memory, shared_memory_map);
-    kh_destroy(process, process_map);
+    kh_destroy(process, process_name_to_info);
 }
 
 void run_process(char *proc, char *path) {
-    khiter_t piter = kh_get(process, process_map, proc);
-    struct process *process = kh_value(process_map, piter);
+    khiter_t piter = kh_get(process, process_name_to_info, proc);
+    struct process *process = kh_value(process_name_to_info, piter);
     process->path = path;
 
     process->pid = clone(event_handler, process->stack_top, SIGCHLD, (void *) process);
@@ -137,8 +146,8 @@ void run_process(char *proc, char *path) {
 }
 
 void block_until_finish() {
-    for (khint_t k = kh_begin(h); k != kh_end(process_map); ++k) {
-        struct process *process = kh_value(process_map, k);
+    for (khint_t k = kh_begin(h); k != kh_end(process_name_to_info); ++k) {
+        struct process *process = kh_value(process_name_to_info, k);
         if (waitpid(process->pid, NULL, 0) == -1) {
             return;
         }

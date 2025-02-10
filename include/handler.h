@@ -15,7 +15,7 @@ KHASH_MAP_INIT_STR(process, struct process *)
 KHASH_MAP_INIT_INT(channel, struct process *)
 KHASH_MAP_INIT_STR(shared_memory, struct shared_memory *)
 
-extern khash_t(process) *process_map;
+extern khash_t(process) *process_name_to_info;
 extern khash_t(shared_memory) *shared_memory_map;
 
 struct process {
