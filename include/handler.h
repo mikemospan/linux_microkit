@@ -15,15 +15,12 @@ KHASH_MAP_INIT_STR(process, struct process *)
 KHASH_MAP_INIT_INT(channel, struct process *)
 KHASH_MAP_INIT_STR(shared_memory, struct shared_memory *)
 
-extern khash_t(process) *process_map;
-extern khash_t(shared_memory) *shared_memory_map;
-
 struct process {
     pid_t pid;
     char *path;
     char *stack_top;
     struct shared_memory_stack *shared_memory;
-    khash_t(channel) *channel_map;
+    khash_t(channel) *channel_id_to_process;
     pid_t pipefd[2];
     pid_t ppc_reply[2];
 };
