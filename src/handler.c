@@ -1,3 +1,10 @@
+/**
+ * This is the main handler file which is called directly by loader.c after executing `run_process`.
+ * Every protection domain calls the `event_handler` function to start its exectution.
+ * 
+ * Author: Michael Mospan (@mmospan)
+ */
+
 #define _GNU_SOURCE
 
 #include <handler.h>
@@ -5,10 +12,15 @@
 #include <poll.h>
 #include <dlfcn.h>
 
+// The current process. Useful to keep track of to avoid a worst-case O(p) search in microkit.c.
 struct process *proc;
 
-/* HELPER FUNCTIONS */
-
+/**
+ * Sets the address of the variables declared as shared within the process to the addresses
+ * we stored internally in `loader.c`.
+ * @param handle A handle to the dynamically linked process to be opened.
+ * @param process The information of the process we will be setting the shared memory of.
+ */
 static void set_shared_memory(void *handle, struct process *process) {
     struct shared_memory_stack *curr = process->shared_memory;
     while (curr != NULL) {
@@ -20,6 +32,11 @@ static void set_shared_memory(void *handle, struct process *process) {
     }
 }
 
+/**
+ * Finds the symbolic link for the `init` function in the process's elf
+ * and executes it.
+ * @param handle A handle to the dynamically linked process to be opened.
+ */
 static void execute_init(void *handle) {
     void (*init)(void) = (void (*)(void)) dlsym(handle, "init");
     const char *dlsym_error = dlerror();
@@ -32,6 +49,12 @@ static void execute_init(void *handle) {
     init();
 }
 
+/**
+ * Finds the symbolic link for the `notified` function in the process's elf
+ * and executes it.
+ * @param handle A handle to the dynamically linked process to be opened.
+ * @param buf An unsigned integer to the channel id we will be notifying
+ */
 static void execute_notified(void *handle, microkit_channel buf) {
     void (*notified)(microkit_channel) = dlsym(handle, "notified");
     const char *dlsym_error = dlerror();
@@ -44,6 +67,11 @@ static void execute_notified(void *handle, microkit_channel buf) {
     notified(buf);
 }
 
+/**
+ * Finds the symbolic link for the `protected` function in the process's elf
+ * and executes it.
+ * @param buf A struct with the information needed to send and reply to a message
+ */
 static void execute_protected(void *handle, struct message buf) {
     microkit_msginfo (*protected)(microkit_channel, microkit_msginfo) = dlsym(handle, "protected");
     const char *dlsym_error = dlerror();
@@ -59,6 +87,16 @@ static void execute_protected(void *handle, struct message buf) {
 }
 
 /* Main child function acting as an event handler */
+/**
+ * The main function that will be executed by the handler. Its main job is to:
+ * 
+ * 1. Initialise all the memory marked as shared
+ * 
+ * 2. Execute the init function
+ * 
+ * 3. Poll for any notifications/ppc and execute the notified/protected function accordingly
+ * @param arg A void pointer containing the address of a process
+ */
 int event_handler(void *arg) {
     proc = (struct process *) arg;
     void *handle = dlopen(proc->path, RTLD_LAZY);
