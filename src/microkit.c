@@ -3,6 +3,8 @@
 
 #include <stdio.h>
 
+extern struct process *proc;
+
 /**
  * A simple helper function to send a message to a given channel.
  * @param ch An unsigned integer to the channel we will be sending the message to
@@ -10,7 +12,6 @@
  * @param ppc An integer set to 0 if the message is a notification, and 1 if it's a ppc
  */
 static void send_message(microkit_channel ch, microkit_msginfo msginfo, int ppc) {
-    extern struct process *proc;
     khash_t(channel) *channel_id_to_process = proc->channel_id_to_process;
     khiter_t iter = kh_get(channel, channel_id_to_process, ch);
     if (kh_key(channel_id_to_process, iter) != ch) {
@@ -18,12 +19,15 @@ static void send_message(microkit_channel ch, microkit_msginfo msginfo, int ppc)
         exit(EXIT_FAILURE);
     }
 
-    struct message send;
-    send.ch = ppc ? ch + MICROKIT_MAX_PDS : ch;
-    send.msginfo = msginfo;
-    send.send_back = proc->ppc_reply[PIPE_WRITE_FD];
+    struct process *receiver = kh_value(channel_id_to_process, iter);
 
-    write(kh_value(channel_id_to_process, iter)->pipefd[PIPE_WRITE_FD], &send, sizeof(struct message));
+    struct message send = {.ch = ch, .msginfo = msginfo, .send_back = proc->receive_pipe[PIPE_WRITE_FD]};
+    if (ppc) {
+        send.ch += MICROKIT_MAX_PDS;
+        memcpy(receiver->ipc_buffer, proc->ipc_buffer, msginfo);
+    }
+
+    write(receiver->send_pipe[PIPE_WRITE_FD], &send, sizeof(struct message));
 }
 
 /**
@@ -31,7 +35,7 @@ static void send_message(microkit_channel ch, microkit_msginfo msginfo, int ppc)
  * @param ch An unsigned integer to the channel we will be sending a notification to
  */
 void microkit_notify(microkit_channel ch) {
-    send_message(ch, NULL, 0);
+    send_message(ch, 0, 0);
 }
 
 /**
@@ -40,7 +44,24 @@ void microkit_notify(microkit_channel ch) {
  * @param count The number of words in the message
  */
 microkit_msginfo microkit_msginfo_new(seL4_Word label, seL4_Uint16 count) {
-    return NULL;
+    return (microkit_msginfo) count;
+}
+
+/**
+ * Sets the value of the provided message register.
+ * @param mr The message register (ipc buffer index) to be set
+ * @param value The value the message register will be set to
+ */
+void microkit_mr_set(seL4_Uint8 mr, seL4_Word value) {
+    proc->ipc_buffer[mr] = value;
+}
+
+/**
+ * Gets the value of the provided message register.
+ * @param mr The message register (ipc buffer index) to be retrieved
+ */
+seL4_Word microkit_mr_get(seL4_Uint8 mr) {
+    return proc->ipc_buffer[mr];
 }
 
 /**
@@ -51,9 +72,8 @@ microkit_msginfo microkit_msginfo_new(seL4_Word label, seL4_Uint16 count) {
 microkit_msginfo microkit_ppcall(microkit_channel ch, microkit_msginfo msginfo) {
     send_message(ch, msginfo, 1);
 
-    extern struct process *proc;
     long receive;
-    read(proc->ppc_reply[PIPE_READ_FD], &receive, sizeof(long));
+    read(proc->receive_pipe[PIPE_READ_FD], &receive, sizeof(long));
     
     return (microkit_msginfo) receive;
 }

@@ -115,7 +115,7 @@ int event_handler(void *arg) {
         return -1;
     }
 
-    fds->fd = proc->pipefd[PIPE_READ_FD];
+    fds->fd = proc->send_pipe[PIPE_READ_FD];
     fds->events = POLLIN;
 
     // Main event loop for polling for changes in pipe and calling notified/protected accordingly

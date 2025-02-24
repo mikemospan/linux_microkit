@@ -46,6 +46,15 @@ void create_process(const char *name) {
     new->stack_top = stack + STACK_SIZE;
     new->shared_memory = NULL;
 
+    new->ipc_buffer = mmap(
+        NULL,
+        IPC_BUFFER_SIZE * sizeof(seL4_Word),
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED | MAP_ANON,
+        -1,
+        0
+    );
+
     /**
      * Create the process's channels stored internally as UNIX pipes. Pipes are a unidirectional
      * meaning we will need two of them: one for sending a message, and one for receiving a reply.
@@ -55,7 +64,7 @@ void create_process(const char *name) {
      * to receive a message from proc1, proc1 will need to write to X and proc2 will need to read from Y.
      */
     new->channel_id_to_process = kh_init(channel);
-    if (pipe(new->pipefd) == -1 || pipe(new->ppc_reply) == -1) {
+    if (pipe(new->send_pipe) == -1 || pipe(new->receive_pipe) == -1) {
         printf("Error on creating pipe\n");
         exit(EXIT_FAILURE);
     }
