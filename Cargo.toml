@@ -1,0 +1,11 @@
+[package]
+name = "linux_microkit"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libc = "0.2"
+libloading = "0.7"
+roxmltree = "0.16"
+signal-hook = "0.3"
+
