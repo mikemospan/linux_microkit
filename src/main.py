@@ -72,7 +72,8 @@ for channel in root.findall("channel"):
 for tuple in process_list:
     libds.run_process(tuple[0], tuple[1])
 
-# --- Wait for the microkit to exit, and clean up any used resources when it does --- #
+# --- Wait for the microkit to exit --- #
+# No need to free anything when it does. Linux and the Python runtime will do the rest.
 try:
     libds.block_until_finish()
 except:
