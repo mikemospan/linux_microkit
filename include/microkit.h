@@ -1,3 +1,5 @@
+#pragma once
+
 typedef unsigned int microkit_channel;
 typedef long seL4_Word;
 typedef seL4_Word microkit_msginfo;

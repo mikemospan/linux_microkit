@@ -13,7 +13,7 @@
 #include <dlfcn.h>
 
 // The current process. Useful to keep track of to avoid a worst-case O(p) search in microkit.c.
-struct process *proc;
+process_t *proc;
 
 /**
  * Sets the address of the variables declared as shared within the process to the addresses
@@ -21,13 +21,17 @@ struct process *proc;
  * @param handle A handle to the dynamically linked process to be opened.
  * @param process The information of the process we will be setting the shared memory of.
  */
-static void set_shared_memory(void *handle, struct process *process) {
-    struct shared_memory_stack *curr = process->shared_memory;
+static void set_shared_memory(void *handle, process_t *process) {
+    shared_memory_stack_t *curr = process->shared_memory;
     while (curr != NULL) {
-        unsigned long *buff = (unsigned long *) dlsym(handle, curr->shm->name);
-        if (dlerror() == NULL) {
-            *buff = (unsigned long) curr->shm->shared_buffer;
+        seL4_Word *buff = (seL4_Word *) dlsym(handle, curr->varname);
+        const char *dlsym_error = dlerror();
+        if (dlsym_error != NULL) {
+            printf("Error finding shared variable: %s\n", dlsym_error);
+            dlclose(handle);
+            exit(EXIT_FAILURE);
         }
+        *buff = (seL4_Word) curr->shm->shared_buffer;
         curr = curr->next;
     }
 }
@@ -72,7 +76,7 @@ static void execute_notified(void *handle, microkit_channel buf) {
  * and executes it.
  * @param buf A struct with the information needed to send and reply to a message
  */
-static void execute_protected(void *handle, struct message buf) {
+static void execute_protected(void *handle, message_t buf) {
     microkit_msginfo (*protected)(microkit_channel, microkit_msginfo) = dlsym(handle, "protected");
     const char *dlsym_error = dlerror();
     if (dlsym_error != NULL) {
@@ -81,12 +85,10 @@ static void execute_protected(void *handle, struct message buf) {
         exit(EXIT_FAILURE);
     }
 
-    protected(buf.ch - MICROKIT_MAX_PDS, buf.msginfo);
-    long info = 1000;
-    write(buf.send_back, &info, sizeof(long));
+    microkit_msginfo info = protected(buf.ch - MICROKIT_MAX_PDS, buf.msginfo);
+    write(buf.send_back, &info, sizeof(microkit_msginfo));
 }
 
-/* Main child function acting as an event handler */
 /**
  * The main function that will be executed by the handler. Its main job is to:
  * 
@@ -98,7 +100,9 @@ static void execute_protected(void *handle, struct message buf) {
  * @param arg A void pointer containing the address of a process
  */
 int event_handler(void *arg) {
-    proc = (struct process *) arg;
+    proc = (process_t *) arg;
+
+    // Dynamically loads the process at runtime
     void *handle = dlopen(proc->path, RTLD_LAZY);
     if (handle == NULL) {
         printf("Error opening file: %s\n", dlerror());
@@ -121,8 +125,8 @@ int event_handler(void *arg) {
     // Main event loop for polling for changes in pipe and calling notified/protected accordingly
     while (ppoll(fds, 1, NULL, NULL)) {
         if (fds->revents & POLLIN) {
-            struct message buf;
-            read(fds->fd, &buf, sizeof(struct message));
+            message_t buf;
+            read(fds->fd, &buf, sizeof(message_t));
             if (buf.ch > MICROKIT_MAX_PDS) execute_protected(handle, buf);
             else execute_notified(handle, buf.ch);
         }

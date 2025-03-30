@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdio.h>
 #include <unistd.h>
 #include <khash.h>
@@ -13,16 +15,21 @@ typedef unsigned int microkit_channel;
 typedef long seL4_Word;
 typedef seL4_Word microkit_msginfo;
 
-KHASH_MAP_INIT_STR(process, struct process *)
-KHASH_MAP_INIT_INT(channel, struct process *)
-KHASH_MAP_INIT_STR(shared_memory, struct shared_memory *)
+typedef struct process process_t;
+typedef struct shared_memory_stack shared_memory_stack_t;
+typedef struct shared_memory shared_memory_t;
+typedef struct message message_t;
+
+KHASH_MAP_INIT_STR(process, process_t *)
+KHASH_MAP_INIT_INT(channel, process_t *)
+KHASH_MAP_INIT_STR(shared_memory, shared_memory_t *)
 
 struct process {
     pid_t pid;
     char *path;
 
     char *stack_top;
-    struct shared_memory_stack *shared_memory;
+    shared_memory_stack_t *shared_memory;
 
     khash_t(channel) *channel_id_to_process;
     pid_t send_pipe[2];
@@ -32,8 +39,9 @@ struct process {
 };
 
 struct shared_memory_stack {
-    struct shared_memory *shm;
-    struct shared_memory_stack *next;
+    shared_memory_t *shm;
+    const char *varname;
+    shared_memory_stack_t *next;
 };
 
 struct shared_memory {

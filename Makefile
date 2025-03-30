@@ -1,7 +1,7 @@
 MAKEFLAGS += -j$(shell nproc)
 
 USR_DIR = ./example
-BUILD_DIR = $(USR_DIR)/build
+BUILD_DIR = ./build
 USRS = $(wildcard $(USR_DIR)/*.c)
 SRCS = $(wildcard ./src/*.c)
 USER_OBJS = $(patsubst $(USR_DIR)/%.c,$(BUILD_DIR)/%.so,$(USRS))

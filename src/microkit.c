@@ -3,15 +3,14 @@
 
 #include <stdio.h>
 
-extern struct process *proc;
+extern process_t *proc;
 
 /**
  * A simple helper function to send a message to a given channel.
  * @param ch An unsigned integer to the channel we will be sending the message to
- * @param msginfo A long pointer containing the message information used in ppc
- * @param ppc An integer set to 0 if the message is a notification, and 1 if it's a ppc
+ * @param msginfo A word containing the message information used in ppc
  */
-static void send_message(microkit_channel ch, microkit_msginfo msginfo, int ppc) {
+static process_t *send_message(microkit_channel ch, microkit_msginfo msginfo) {
     khash_t(channel) *channel_id_to_process = proc->channel_id_to_process;
     khiter_t iter = kh_get(channel, channel_id_to_process, ch);
     if (kh_key(channel_id_to_process, iter) != ch) {
@@ -19,15 +18,17 @@ static void send_message(microkit_channel ch, microkit_msginfo msginfo, int ppc)
         exit(EXIT_FAILURE);
     }
 
-    struct process *receiver = kh_value(channel_id_to_process, iter);
+    process_t *receiver = kh_value(channel_id_to_process, iter);
 
-    struct message send = {.ch = ch, .msginfo = msginfo, .send_back = proc->receive_pipe[PIPE_WRITE_FD]};
-    if (ppc) {
+    message_t send = {.ch = ch, .msginfo = msginfo, .send_back = proc->receive_pipe[PIPE_WRITE_FD]};
+    if (msginfo) {
         send.ch += MICROKIT_MAX_PDS;
-        memcpy(receiver->ipc_buffer, proc->ipc_buffer, msginfo);
+        memcpy(receiver->ipc_buffer, proc->ipc_buffer, msginfo * sizeof(seL4_Word));
     }
 
-    write(receiver->send_pipe[PIPE_WRITE_FD], &send, sizeof(struct message));
+    write(receiver->send_pipe[PIPE_WRITE_FD], &send, sizeof(message_t));
+
+    return receiver;
 }
 
 /**
@@ -35,11 +36,11 @@ static void send_message(microkit_channel ch, microkit_msginfo msginfo, int ppc)
  * @param ch An unsigned integer to the channel we will be sending a notification to
  */
 void microkit_notify(microkit_channel ch) {
-    send_message(ch, 0, 0);
+    send_message(ch, 0);
 }
 
 /**
- * Creates a microkit message info struct. TODO: Complete.
+ * Creates a microkit message info struct. TODO: Figure out what to do with the label.
  * @param label The label of the message
  * @param count The number of words in the message
  */
@@ -65,15 +66,16 @@ seL4_Word microkit_mr_get(seL4_Uint8 mr) {
 }
 
 /**
- * Creates a microkit message info struct. TODO: Complete.
+ * Sends a protected procedure call across the provided channel.
  * @param ch An unsigned integer to the channel we will be sending a ppc to 
  * @param msginfo The message information
  */
 microkit_msginfo microkit_ppcall(microkit_channel ch, microkit_msginfo msginfo) {
-    send_message(ch, msginfo, 1);
+    process_t *receiver = send_message(ch, msginfo);
 
-    long receive;
+    microkit_msginfo receive;
     read(proc->receive_pipe[PIPE_READ_FD], &receive, sizeof(long));
+    memcpy(proc->ipc_buffer, receiver->ipc_buffer, receive * sizeof(seL4_Word));
     
-    return (microkit_msginfo) receive;
+    return receive;
 }

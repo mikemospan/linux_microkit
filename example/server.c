@@ -8,9 +8,10 @@
 unsigned long buffer;
 
 void init(void) {
-    printf("==SERVER PROCESS INITIALISED==\n");
     microkit_mr_set(0, 100);
-    microkit_ppcall(CLIENT_CHANNEL_ID, microkit_msginfo_new(0, 1));
+    microkit_mr_set(1, 8);
+    microkit_ppcall(CLIENT_CHANNEL_ID, microkit_msginfo_new(0, 2));
+    printf("== SERVER PROCESS INITIALISED WITH RESPONSE: %ld ==\n", microkit_mr_get(0));
 }
 
 void notified(microkit_channel ch) {

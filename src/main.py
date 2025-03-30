@@ -23,7 +23,7 @@ signal.signal(signal.SIGTSTP, handler)
 libds = ctypes.CDLL('./libmicrokit.so')
 libds.create_shared_memory.argtypes = [ctypes.c_char_p, ctypes.c_int]
 libds.create_process.argtypes = [ctypes.c_char_p]
-libds.add_shared_memory.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+libds.add_shared_memory.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
 libds.create_channel.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
 
 # --- Grab the .system path and start a list of processes that will be scraped from it --- #
@@ -37,21 +37,22 @@ for region in root.findall("memory_region"):
     libds.create_shared_memory(region_name, region_size)
 
 # --- Find all protection domains and call the necessary C functions to create them --- #
-for domain in root.findall("protection_domain"):
+for pd in root.findall("protection_domain"):
     # Create the necessary book keeping for each process
-    domain_name = ctypes.create_string_buffer(domain.get("name").encode())
-    libds.create_process(domain_name)
+    pd_name = ctypes.create_string_buffer(pd.get("name").encode())
+    libds.create_process(pd_name)
 
     # Add any shared memory it uses that was defined earlier
-    domain_map = domain.find("map")
-    domain_map_name = ctypes.create_string_buffer(domain_map.get("mr").encode())
-    libds.add_shared_memory(domain_name, domain_map_name)
+    pd_map = pd.find("map")
+    pd_map_name = ctypes.create_string_buffer(pd_map.get("mr").encode())
+    pd_map_varname = ctypes.create_string_buffer(pd_map.get("setvar_vaddr").encode())
+    libds.add_shared_memory(pd_name, pd_map_name, pd_map_varname)
 
     # Add the process information to our process list. We will execute these all at once later.
-    domain_image = domain.find("program_image")
-    domain_image_path = domain_image.get("path")[:-3] + "so" # replace .elf with .so
-    domain_image_path = ctypes.create_string_buffer(domain_image_path.encode())
-    process_list.append((domain_name, domain_image_path))
+    pd_image = pd.find("program_image")
+    pd_image_path = "./build/" + pd_image.get("path")[:-3] + "so" # replace .elf with .so
+    pd_image_path = ctypes.create_string_buffer(pd_image_path.encode())
+    process_list.append((pd_name, pd_image_path))
 
 # --- Find all communication channels between the processes and create them --- #
 for channel in root.findall("channel"):
@@ -71,9 +72,8 @@ for channel in root.findall("channel"):
 for tuple in process_list:
     libds.run_process(tuple[0], tuple[1])
 
-# --- Wait the microkit is exited, and clean up any used resources when it does --- #
+# --- Wait for the microkit to exit, and clean up any used resources when it does --- #
 try:
     libds.block_until_finish()
 except:
     print("\nEXITING THE MICROKIT")
-libds.free_resources()

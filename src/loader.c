@@ -15,8 +15,8 @@
 #include <sched.h>
 
 /* --- Hashmaps used by the program defined in handler.h --- */
-khash_t(process) *process_name_to_info = NULL; // Maps process name (char*) -> process info (struct process*)
-khash_t(shared_memory) *shm_name_to_info = NULL; // Maps channel name (char*) -> process info (struct process*)
+khash_t(process) *process_name_to_info = NULL; // Maps process name (char*) -> process info (process_t*)
+khash_t(shared_memory) *shm_name_to_info = NULL; // Maps channel name (char*) -> process info (process_t*)
 
 /**
  * Creates the process data. This involves allocating memory for the process struct which holds its:
@@ -32,7 +32,7 @@ khash_t(shared_memory) *shm_name_to_info = NULL; // Maps channel name (char*) ->
  * @param name The name of the protection domain (process)
  */
 void create_process(const char *name) {
-    struct process *new = malloc(sizeof(struct process));
+    process_t *new = malloc(sizeof(process_t));
     if (new == NULL) {
         printf("Error on allocating process\n");
         exit(EXIT_FAILURE);
@@ -95,7 +95,7 @@ void create_process(const char *name) {
  */
 void create_channel(const char *from, const char *to, microkit_channel ch) {
     khiter_t process_iter = kh_get(process, process_name_to_info, from);
-    struct process *from_process = kh_value(process_name_to_info, process_iter);
+    process_t *from_process = kh_value(process_name_to_info, process_iter);
 
     process_iter = kh_get(process, process_name_to_info, to);
 
@@ -107,7 +107,6 @@ void create_channel(const char *from, const char *to, microkit_channel ch) {
     }
     
     kh_value(from_process->channel_id_to_process, channel_iter) = kh_value(process_name_to_info, process_iter);
-
 }
 
 /**
@@ -120,7 +119,7 @@ void create_channel(const char *from, const char *to, microkit_channel ch) {
  * @param size An unsigned 64 bit integer corresponding to the size of the shared memory
  */
 void create_shared_memory(char *name, u_int64_t size) {
-    struct shared_memory *new = malloc(sizeof(struct shared_memory));
+    shared_memory_t *new = malloc(sizeof(shared_memory_t));
     if (new == NULL) {
         printf("Error on allocating shared memory\n");
         exit(EXIT_FAILURE);
@@ -160,52 +159,27 @@ void create_shared_memory(char *name, u_int64_t size) {
  * @param proc_name A string corresponding to the name of a process
  * @param shm_name A string corresponding to the name of some shared memory
  */
-void add_shared_memory(const char *proc_name, const char *shm_name) {
+void add_shared_memory(const char *proc_name, const char *shm_name, const char *shm_varname) {
     khiter_t process_iter = kh_get(process, process_name_to_info, proc_name);
     if (process_iter == kh_end(process_name_to_info)) {
         printf("The mapping %s is invalid.\n", proc_name);
         exit(EXIT_FAILURE);
     }
-    struct process *process = kh_value(process_name_to_info, process_iter);
+    process_t *process = kh_value(process_name_to_info, process_iter);
 
     khiter_t shm_iter = kh_get(shared_memory, shm_name_to_info, shm_name);
     if (shm_iter == kh_end(shm_name_to_info)) {
         printf("The mapping %s is invalid.\n", shm_name);
         exit(EXIT_FAILURE);
     }
-    struct shared_memory *shared_memory = kh_value(shm_name_to_info, shm_iter);
+    shared_memory_t *shared_memory = kh_value(shm_name_to_info, shm_iter);
 
     // Add the shared memory struct to the stack stored in the process. Stacks give us constant push time.
-    struct shared_memory_stack *head = process->shared_memory;
-    process->shared_memory = malloc(sizeof(struct shared_memory_stack));
+    shared_memory_stack_t *head = process->shared_memory;
+    process->shared_memory = malloc(sizeof(shared_memory_stack_t));
     process->shared_memory->shm = shared_memory;
+    process->shared_memory->varname = strdup(shm_varname);
     process->shared_memory->next = head;
-}
-
-
-/**
- * Frees all resources corresponding to the microkit. This includes every process,
- * its shared memory, stack, and channels as well as others.
- * 
- * Time complexity: O(p + m + c); where p = processes, m = shared_memory, c = channels.
- */
-void free_resources() {
-    for (khint_t k = kh_begin(h); k != kh_end(process_name_to_info); ++k) {
-        if (kh_exist(process_name_to_info, k)) {
-            struct process *process = kh_value(process_name_to_info, k);
-            kill(process->pid, SIGTERM);
-            free(process->stack_top - STACK_SIZE);
-            struct shared_memory_stack *shared_memory = process->shared_memory;
-            while (shared_memory != NULL) {
-                struct shared_memory_stack *next = process->shared_memory->next;
-                free(shared_memory);
-                shared_memory = next;
-            }
-            kh_free(channel, process->channel_id_to_process);
-        }
-    }
-    kh_destroy(shared_memory, shm_name_to_info);
-    kh_destroy(process, process_name_to_info);
 }
 
 /**
@@ -219,7 +193,7 @@ void free_resources() {
  */
 void run_process(char *proc_name, char *path) {
     khiter_t piter = kh_get(process, process_name_to_info, proc_name);
-    struct process *process = kh_value(process_name_to_info, piter);
+    process_t *process = kh_value(process_name_to_info, piter);
     process->path = path;
 
     process->pid = clone(event_handler, process->stack_top, SIGCHLD, (void *) process);
@@ -229,7 +203,6 @@ void run_process(char *proc_name, char *path) {
     }
 }
 
-
 /**
  * Blocks the main microkit process until all its children protection domains are complete.
  * 
@@ -237,7 +210,7 @@ void run_process(char *proc_name, char *path) {
  */
 void block_until_finish() {
     for (khint_t k = kh_begin(h); k != kh_end(process_name_to_info); ++k) {
-        struct process *process = kh_value(process_name_to_info, k);
+        process_t *process = kh_value(process_name_to_info, k);
         if (waitpid(process->pid, NULL, 0) == -1) {
             return;
         }
