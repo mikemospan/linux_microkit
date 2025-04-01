@@ -4,8 +4,6 @@
 #include <unistd.h>
 #include <khash.h>
 
-#define PAGE_SIZE 4096
-#define STACK_SIZE PAGE_SIZE
 #define MICROKIT_MAX_PDS 63
 #define IPC_BUFFER_SIZE 64
 #define PIPE_READ_FD 0

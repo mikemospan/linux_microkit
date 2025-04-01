@@ -32,19 +32,19 @@ khash_t(shared_memory) *shm_name_to_info = NULL; // Maps channel name (char*) ->
  * 
  * @param name The name of the protection domain (process)
  */
-void create_process(const char *name) {
+void create_process(const char *name, uint32_t stack_size) {
     process_t *new = malloc(sizeof(process_t));
     if (new == NULL) {
         printf("Error on allocating process\n");
         exit(EXIT_FAILURE);
     }
 
-    char *stack = malloc(STACK_SIZE);
+    char *stack = malloc(stack_size);
     if (stack == NULL) {
         printf("Error on allocating stack\n");
         exit(EXIT_FAILURE);
     }
-    new->stack_top = stack + STACK_SIZE;
+    new->stack_top = stack + stack_size;
     new->shared_memory = NULL;
 
     new->ipc_buffer = mmap(

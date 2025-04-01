@@ -9,11 +9,14 @@ use std::ffi::CString;
 use libloading::{Library, Symbol};
 use roxmltree::Document;
 
-type CreateSharedMemory = extern "C" fn(*const libc::c_char, libc::c_int);
-type CreateProcess = extern "C" fn(*const libc::c_char);
+type CreateProcess = extern "C" fn(*const libc::c_char, libc::c_uint);
+type CreateSharedMemory = extern "C" fn(*const libc::c_char, libc::c_uint);
 type AddSharedMemory = extern "C" fn(*const libc::c_char, *const libc::c_char, *const libc::c_char);
-type CreateChannel = extern "C" fn(*const libc::c_char, *const libc::c_char, libc::c_int);
+type CreateChannel = extern "C" fn(*const libc::c_char, *const libc::c_char, libc::c_uint);
 type RunProcess = extern "C" fn(*const libc::c_char, *const libc::c_char);
+
+const KIBIBYTE: u32 = 1024;
+const MEBIBYTE: u32 = KIBIBYTE * KIBIBYTE;
 
 pub struct Loader<'a> {
     create_shared_memory: Symbol<'a, CreateSharedMemory>,
@@ -34,13 +37,13 @@ impl<'a> Loader<'a> {
         })
     }
 
-    pub fn create_shared_memory(&self, name: &str, size: i32) -> Result<(), Box<dyn Error>> {
+    pub fn create_shared_memory(&self, name: &str, size: u32) -> Result<(), Box<dyn Error>> {
         (self.create_shared_memory)(CString::new(name)?.as_ptr(), size);
         Ok(())
     }
 
-    pub fn create_process(&self, name: &str) -> Result<(), Box<dyn Error>> {
-        (self.create_process)(CString::new(name)?.as_ptr());
+    pub fn create_process(&self, name: &str, stack_size: u32) -> Result<(), Box<dyn Error>> {
+        (self.create_process)(CString::new(name)?.as_ptr(), stack_size);
         Ok(())
     }
 
@@ -49,7 +52,7 @@ impl<'a> Loader<'a> {
         Ok(())
     }
 
-    pub fn create_channel(&self, pd1: &str, pd2: &str, id: i32) -> Result<(), Box<dyn Error>> {
+    pub fn create_channel(&self, pd1: &str, pd2: &str, id: u32) -> Result<(), Box<dyn Error>> {
         (self.create_channel)(CString::new(pd1)?.as_ptr(), CString::new(pd2)?.as_ptr(), id);
         Ok(())
     }
@@ -65,7 +68,7 @@ fn process_memory_regions(doc: &Document, loader: &Loader) -> Result<(), Box<dyn
     for node in doc.descendants().filter(|n| n.has_tag_name("memory_region")) {
         let region_name = node.attribute("name").ok_or("Missing attribute 'name' on memory_region")?;
         let size_str = node.attribute("size").ok_or("Missing attribute 'size' on memory_region")?;
-        let region_size = i32::from_str_radix(size_str.trim_start_matches("0x"), 16)?;
+        let region_size = u32::from_str_radix(size_str.trim_start_matches("0x"), 16)?;
         loader.create_shared_memory(region_name, region_size)?;
     }
     Ok(())
@@ -76,13 +79,14 @@ fn process_protection_domains(doc: &Document, loader: &Loader) -> Result<Vec<(St
     let mut process_list: Vec<(String, String)> = Vec::new();
     for pd in doc.descendants().filter(|n| n.has_tag_name("protection_domain")) {
         let pd_name_str = pd.attribute("name").ok_or("Missing attribute 'name' on protection_domain")?;
-        loader.create_process(pd_name_str)?;
 
-        if let Some(pd_map) = pd.descendants().find(|n| n.has_tag_name("map")) {
-            let pd_map_name_str = pd_map.attribute("mr").ok_or("Missing attribute 'mr' on map")?;
-            let pd_map_varname_str = pd_map.attribute("setvar_vaddr").ok_or("Missing attribute 'setvar_vaddr' on map")?;
-            loader.add_shared_memory(pd_name_str, pd_map_name_str, pd_map_varname_str)?;
+        let stack_size_str = pd.attribute("stack_size").unwrap_or("0x1000");
+        let stack_size = u32::from_str_radix(stack_size_str.trim_start_matches("0x"), 16)?;
+        if stack_size < 4 * KIBIBYTE || stack_size > 16 * MEBIBYTE {
+            return Err("Stack size must be between 4 KiB and 16 MiB".into());
         }
+
+        loader.create_process(pd_name_str, stack_size)?;
 
         if let Some(pd_image) = pd.descendants().find(|n| n.has_tag_name("program_image")) {
             let pd_image_path_raw = pd_image.attribute("path").ok_or("Missing attribute 'path' on program_image")?;
@@ -90,6 +94,12 @@ fn process_protection_domains(doc: &Document, loader: &Loader) -> Result<Vec<(St
             pd_image_path.push_str(&pd_image_path_raw[..pd_image_path_raw.len() - 3]);
             pd_image_path.push_str("so"); // replace .elf with .so
             process_list.push((pd_name_str.to_string(), pd_image_path));
+        }
+
+        if let Some(pd_map) = pd.descendants().find(|n| n.has_tag_name("map")) {
+            let pd_map_name_str = pd_map.attribute("mr").ok_or("Missing attribute 'mr' on map")?;
+            let pd_map_varname_str = pd_map.attribute("setvar_vaddr").ok_or("Missing attribute 'setvar_vaddr' on map")?;
+            loader.add_shared_memory(pd_name_str, pd_map_name_str, pd_map_varname_str)?;
         }
     }
     Ok(process_list)
@@ -104,8 +114,8 @@ fn process_channels(doc: &Document, loader: &Loader) -> Result<(), Box<dyn Error
             let pd1 = end1.attribute("pd").ok_or("Missing attribute 'pd' on first channel end")?;
             let pd2 = end2.attribute("pd").ok_or("Missing attribute 'pd' on second channel end")?;
 
-            let id1 = end1.attribute("id").ok_or("Missing attribute 'id' on first channel end")?.parse::<i32>()?;
-            let id2 = end2.attribute("id").ok_or("Missing attribute 'id' on second channel end")?.parse::<i32>()?;
+            let id1 = end1.attribute("id").ok_or("Missing attribute 'id' on first channel end")?.parse()?;
+            let id2 = end2.attribute("id").ok_or("Missing attribute 'id' on second channel end")?.parse()?;
             
             loader.create_channel(pd1, pd2, id1)?;
             loader.create_channel(pd2, pd1, id2)?;
