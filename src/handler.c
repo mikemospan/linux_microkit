@@ -8,7 +8,6 @@
 #define _GNU_SOURCE
 
 #include <handler.h>
-
 #include <poll.h>
 #include <dlfcn.h>
 
@@ -57,9 +56,9 @@ static void execute_init(void *handle) {
  * Finds the symbolic link for the `notified` function in the process's elf
  * and executes it.
  * @param handle A handle to the dynamically linked process to be opened.
- * @param buf An unsigned integer to the channel id we will be notifying
+ * @param ch An unsigned integer to the channel id we will be notifying
  */
-static void execute_notified(void *handle, microkit_channel buf) {
+static void execute_notified(void *handle, microkit_channel ch) {
     void (*notified)(microkit_channel) = dlsym(handle, "notified");
     const char *dlsym_error = dlerror();
     if (dlsym_error != NULL) {
@@ -68,7 +67,7 @@ static void execute_notified(void *handle, microkit_channel buf) {
         exit(EXIT_FAILURE);
     }
 
-    notified(buf);
+    notified(ch);
 }
 
 /**
@@ -76,7 +75,7 @@ static void execute_notified(void *handle, microkit_channel buf) {
  * and executes it.
  * @param buf A struct with the information needed to send and reply to a message
  */
-static void execute_protected(void *handle, message_t buf) {
+static void execute_protected(void *handle, message_t msg) {
     microkit_msginfo (*protected)(microkit_channel, microkit_msginfo) = dlsym(handle, "protected");
     const char *dlsym_error = dlerror();
     if (dlsym_error != NULL) {
@@ -85,8 +84,8 @@ static void execute_protected(void *handle, message_t buf) {
         exit(EXIT_FAILURE);
     }
 
-    microkit_msginfo info = protected(buf.ch - MICROKIT_MAX_PDS, buf.msginfo);
-    write(buf.send_back, &info, sizeof(microkit_msginfo));
+    microkit_msginfo info = protected(msg.ch, msg.msginfo);
+    write(msg.send_back, &info, sizeof(microkit_msginfo));
 }
 
 /**
@@ -112,27 +111,25 @@ int event_handler(void *arg) {
     set_shared_memory(handle, proc);
     execute_init(handle);
     
-    // Declare and initialise necessary variables for polling from pipe
-    struct pollfd *fds = malloc(sizeof(struct pollfd));
-    if (fds == NULL) {
-        printf("Error on allocating poll fds\n");
-        return -1;
-    }
-
-    fds->fd = proc->send_pipe[PIPE_READ_FD];
-    fds->events = POLLIN;
+    // Declare and initialise necessary variables for polling for notifications and ppc
+    struct pollfd fds[2] = {
+        { .fd = proc->notification, .events = POLLIN },
+        { .fd = proc->send_pipe[PIPE_READ_FD], .events = POLLIN }
+    };
 
     // Main event loop for polling for changes in pipe and calling notified/protected accordingly
-    while (ppoll(fds, 1, NULL, NULL)) {
-        if (fds->revents & POLLIN) {
-            message_t buf;
-            read(fds->fd, &buf, sizeof(message_t));
-            if (buf.ch > MICROKIT_MAX_PDS) execute_protected(handle, buf);
-            else execute_notified(handle, buf.ch);
+    while (ppoll(fds, 2, NULL, NULL)) {
+        if (fds[0].revents & POLLIN) {
+            microkit_channel channel;
+            read(fds[0].fd, &channel, sizeof(microkit_channel));
+            execute_notified(handle, channel);
+        } else if (fds[1].revents & POLLIN) {
+            message_t msg;
+            read(fds[1].fd, &msg, sizeof(message_t));
+            execute_protected(handle, msg);
         }
     }
 
-    free(fds);
     dlclose(handle);
     return 0;
 }

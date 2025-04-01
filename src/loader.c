@@ -12,6 +12,7 @@
 
 #include <sys/mman.h>
 #include <sys/wait.h>
+#include <sys/eventfd.h>
 #include <sched.h>
 
 /* --- Hashmaps used by the program defined in handler.h --- */
@@ -22,7 +23,7 @@ khash_t(shared_memory) *shm_name_to_info = NULL; // Maps channel name (char*) ->
  * Creates the process data. This involves allocating memory for the process struct which holds its:
  * 1. Stack,
  * 2. Shared memory,
- * 3. Channels (UNIX pipes internally),
+ * 3. Channels (UNIX eventfd and pipes internally),
  * 4. Process ID,
  * 5. Path.
  * This information is then added to a hashmap which maps the process name to its struct.
@@ -54,6 +55,12 @@ void create_process(const char *name) {
         -1,
         0
     );
+
+    new->notification = eventfd(0, EFD_NONBLOCK);
+    if (new->notification == -1) {
+        printf("Error on creating eventfd\n");
+        exit(EXIT_FAILURE);
+    }
 
     /**
      * Create the process's channels stored internally as UNIX pipes. Pipes are a unidirectional

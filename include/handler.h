@@ -11,7 +11,7 @@
 #define PIPE_READ_FD 0
 #define PIPE_WRITE_FD 1
 
-typedef unsigned int microkit_channel;
+typedef unsigned long microkit_channel;
 typedef long seL4_Word;
 typedef seL4_Word microkit_msginfo;
 
@@ -32,8 +32,9 @@ struct process {
     shared_memory_stack_t *shared_memory;
 
     khash_t(channel) *channel_id_to_process;
-    pid_t send_pipe[2];
-    pid_t receive_pipe[2];
+    pid_t notification; // fd for receiving notifications
+    pid_t send_pipe[2]; // Send pipe for PPC
+    pid_t receive_pipe[2]; // Receive pipe for PPC
 
     seL4_Word *ipc_buffer;
 };

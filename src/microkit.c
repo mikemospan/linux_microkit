@@ -1,34 +1,21 @@
 #include <microkit.h>
 #include <handler.h>
-
 #include <stdio.h>
 
 extern process_t *proc;
 
 /**
- * A simple helper function to send a message to a given channel.
- * @param ch An unsigned integer to the channel we will be sending the message to
- * @param msginfo A word containing the message information used in ppc
+ * Get the receiver process for a channel
+ * @param ch Channel identifier
  */
-static process_t *send_message(microkit_channel ch, microkit_msginfo msginfo) {
+static process_t *get_channel_receiver(microkit_channel ch) {
     khash_t(channel) *channel_id_to_process = proc->channel_id_to_process;
     khiter_t iter = kh_get(channel, channel_id_to_process, ch);
     if (kh_key(channel_id_to_process, iter) != ch) {
-        printf("Channel id %u is not a valid channel\n", ch);
+        printf("Channel id %lu is not a valid channel\n", ch);
         exit(EXIT_FAILURE);
     }
-
-    process_t *receiver = kh_value(channel_id_to_process, iter);
-
-    message_t send = {.ch = ch, .msginfo = msginfo, .send_back = proc->receive_pipe[PIPE_WRITE_FD]};
-    if (msginfo) {
-        send.ch += MICROKIT_MAX_PDS;
-        memcpy(receiver->ipc_buffer, proc->ipc_buffer, msginfo * sizeof(seL4_Word));
-    }
-
-    write(receiver->send_pipe[PIPE_WRITE_FD], &send, sizeof(message_t));
-
-    return receiver;
+    return kh_value(channel_id_to_process, iter);
 }
 
 /**
@@ -36,7 +23,7 @@ static process_t *send_message(microkit_channel ch, microkit_msginfo msginfo) {
  * @param ch An unsigned integer to the channel we will be sending a notification to
  */
 void microkit_notify(microkit_channel ch) {
-    send_message(ch, 0);
+    write(get_channel_receiver(ch)->notification, &ch, sizeof(microkit_channel));
 }
 
 /**
@@ -67,15 +54,18 @@ seL4_Word microkit_mr_get(seL4_Uint8 mr) {
 
 /**
  * Sends a protected procedure call across the provided channel.
- * @param ch An unsigned integer to the channel we will be sending a ppc to 
+ * @param ch An unsigned integer to the channel we will be sending a ppc to
  * @param msginfo The message information
  */
 microkit_msginfo microkit_ppcall(microkit_channel ch, microkit_msginfo msginfo) {
-    process_t *receiver = send_message(ch, msginfo);
+    process_t *receiver = get_channel_receiver(ch);
+    message_t send = {.ch = ch, .msginfo = msginfo, .send_back = proc->receive_pipe[PIPE_WRITE_FD]};
+    memcpy(receiver->ipc_buffer, proc->ipc_buffer, msginfo * sizeof(seL4_Word));
+    write(receiver->send_pipe[PIPE_WRITE_FD], &send, sizeof(message_t));
 
     microkit_msginfo receive;
     read(proc->receive_pipe[PIPE_READ_FD], &receive, sizeof(long));
     memcpy(proc->ipc_buffer, receiver->ipc_buffer, receive * sizeof(seL4_Word));
-    
+   
     return receive;
 }

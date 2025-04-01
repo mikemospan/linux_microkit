@@ -1,6 +1,6 @@
 #pragma once
 
-typedef unsigned int microkit_channel;
+typedef unsigned long microkit_channel;
 typedef long seL4_Word;
 typedef seL4_Word microkit_msginfo;
 typedef unsigned char seL4_Uint8;
