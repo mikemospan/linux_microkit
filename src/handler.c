@@ -8,8 +8,8 @@
 #define _GNU_SOURCE
 
 #include <handler.h>
-#include <poll.h>
 #include <dlfcn.h>
+#include <sys/epoll.h>
 
 // The current process. Useful to keep track of to avoid a worst-case O(p) search in microkit.c.
 process_t *proc;
@@ -110,23 +110,40 @@ int event_handler(void *arg) {
 
     set_shared_memory(handle, proc);
     execute_init(handle);
-    
-    // Declare and initialise necessary variables for polling for notifications and ppc
-    struct pollfd fds[2] = {
-        { .fd = proc->notification, .events = POLLIN },
-        { .fd = proc->send_pipe[PIPE_READ_FD], .events = POLLIN }
-    };
 
-    // Main event loop for polling for changes in pipe and calling notified/protected accordingly
-    while (ppoll(fds, 2, NULL, NULL)) {
-        if (fds[0].revents & POLLIN) {
-            microkit_channel channel;
-            read(fds[0].fd, &channel, sizeof(microkit_channel));
-            execute_notified(handle, channel);
-        } else if (fds[1].revents & POLLIN) {
-            message_t msg;
-            read(fds[1].fd, &msg, sizeof(message_t));
-            execute_protected(handle, msg);
+    int epoll_fd = epoll_create1(0);
+
+    struct epoll_event event = {.events = EPOLLIN, .data.fd = proc->notification};
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, proc->notification, &event) == -1) {
+        printf("Failed to initialise polling for notifications");
+        exit(EXIT_FAILURE);
+    }
+
+    event = (struct epoll_event){.events = EPOLLIN, .data.fd = proc->send_pipe[PIPE_READ_FD]};
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, proc->send_pipe[PIPE_READ_FD], &event) == -1) {
+        printf("Failed to initialise polling for ppc");
+        exit(EXIT_FAILURE);
+    }
+
+    struct epoll_event events[2];
+
+    while (1) {
+        int nfds = epoll_wait(epoll_fd, events, 2, -1);
+        if (nfds == -1) {
+            printf("epoll wait failed");
+            exit(EXIT_FAILURE);
+        }
+
+        for (int i = 0; i < nfds; ++i) {
+            if (events[i].data.fd == proc->notification) {
+                microkit_channel channel;
+                read(proc->notification, &channel, sizeof(microkit_channel));
+                execute_notified(handle, channel);
+            } else if (events[i].data.fd == proc->send_pipe[PIPE_READ_FD]) {
+                message_t msg;
+                read(proc->send_pipe[PIPE_READ_FD], &msg, sizeof(message_t));
+                execute_protected(handle, msg);
+            }
         }
     }
 
