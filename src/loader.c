@@ -82,7 +82,7 @@ void create_process(const char *name, uint32_t stack_size) {
     }
 
     int ret;
-    khiter_t iter = kh_put(process, process_name_to_info, strdup(name), &ret);
+    khiter_t iter = kh_put(process, process_name_to_info, name, &ret);
     if (ret == -1) {
         printf("Error on adding to hash map\n");
         exit(EXIT_FAILURE);
@@ -132,7 +132,7 @@ void create_shared_memory(char *name, u_int64_t size) {
         exit(EXIT_FAILURE);
     }
     new->size = size;
-    new->name = strdup(name);
+    new->name = name;
 
     /**
      * Create the shared buffer within which the actual data shared between protection domains
@@ -185,7 +185,7 @@ void add_shared_memory(const char *proc_name, const char *shm_name, const char *
     shared_memory_stack_t *head = process->shared_memory;
     process->shared_memory = malloc(sizeof(shared_memory_stack_t));
     process->shared_memory->shm = shared_memory;
-    process->shared_memory->varname = strdup(shm_varname);
+    process->shared_memory->varname = shm_varname;
     process->shared_memory->next = head;
 }
 

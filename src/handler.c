@@ -127,7 +127,7 @@ int event_handler(void *arg) {
 
     struct epoll_event events[2];
 
-    while (1) {
+    for (;;) {
         int nfds = epoll_wait(epoll_fd, events, 2, -1);
         if (nfds == -1) {
             printf("epoll wait failed");

@@ -24,47 +24,62 @@ pub struct Loader<'a> {
     add_shared_memory: Symbol<'a, AddSharedMemory>,
     create_channel: Symbol<'a, CreateChannel>,
     run_process: Symbol<'a, RunProcess>,
+
+    // Keep all CString allocations alive for the lifetime of Loader
+    owned_c_strings: Vec<CString>,
 }
 
 impl<'a> Loader<'a> {
     pub fn new(lib: &'a Library) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
-            create_shared_memory: unsafe { lib.get(b"create_shared_memory\0")? },
-            create_process: unsafe { lib.get(b"create_process\0")? },
-            add_shared_memory: unsafe { lib.get(b"add_shared_memory\0")? },
-            create_channel: unsafe { lib.get(b"create_channel\0")? },
-            run_process: unsafe { lib.get(b"run_process\0")? },
+            create_shared_memory:   unsafe { lib.get(b"create_shared_memory\0")? },
+            create_process:         unsafe { lib.get(b"create_process\0")? },
+            add_shared_memory:      unsafe { lib.get(b"add_shared_memory\0")? },
+            create_channel:         unsafe { lib.get(b"create_channel\0")? },
+            run_process:            unsafe { lib.get(b"run_process\0")? },
+            owned_c_strings:        Vec::new()
         })
     }
 
-    pub fn create_shared_memory(&self, name: &str, size: u32) -> Result<(), Box<dyn Error>> {
-        (self.create_shared_memory)(CString::new(name)?.as_ptr(), size);
+    fn store_str(&mut self, s: &str) -> *const libc::c_char {
+        let cstr = CString::new(s).expect("CString::new failed");
+        let cptr = cstr.as_ptr();
+        self.owned_c_strings.push(cstr);
+        return cptr
+    }
+
+    pub fn create_shared_memory(&mut self, name: &str, size: u32) -> Result<(), Box<dyn Error>> {
+        let name_ptr = self.store_str(name);
+        (self.create_shared_memory)(name_ptr, size);
         Ok(())
     }
 
-    pub fn create_process(&self, name: &str, stack_size: u32) -> Result<(), Box<dyn Error>> {
-        (self.create_process)(CString::new(name)?.as_ptr(), stack_size);
+    pub fn create_process(&mut self, name: &str, stack_size: u32) -> Result<(), Box<dyn Error>> {
+        let name_ptr = self.store_str(name);
+        (self.create_process)(name_ptr, stack_size);
         Ok(())
     }
 
-    pub fn add_shared_memory(&self, pd_name: &str, mr_name: &str, varname: &str) -> Result<(), Box<dyn Error>> {
-        (self.add_shared_memory)(CString::new(pd_name)?.as_ptr(), CString::new(mr_name)?.as_ptr(), CString::new(varname)?.as_ptr());
+    pub fn add_shared_memory(&mut self, pd_name: &str, mr_name: &str, varname: &str) -> Result<(), Box<dyn Error>> {
+        let mr_ptr   = self.store_str(mr_name);
+        let var_ptr  = self.store_str(varname);
+        (self.add_shared_memory)(CString::new(pd_name)?.as_ptr(), mr_ptr, var_ptr);
         Ok(())
     }
 
-    pub fn create_channel(&self, pd1: &str, pd2: &str, id: u32) -> Result<(), Box<dyn Error>> {
+    pub fn create_channel(&mut self, pd1: &str, pd2: &str, id: u32) -> Result<(), Box<dyn Error>> {
         (self.create_channel)(CString::new(pd1)?.as_ptr(), CString::new(pd2)?.as_ptr(), id);
         Ok(())
     }
 
-    pub fn run_process(&self, pd_name: &str, image_path: &str) -> Result<(), Box<dyn Error>> {
+    pub fn run_process(&mut self, pd_name: &str, image_path: &str) -> Result<(), Box<dyn Error>> {
         (self.run_process)(CString::new(pd_name)?.as_ptr(), CString::new(image_path)?.as_ptr());
         Ok(())
     }
 }
 
 /* --- Find all memory regions and call the C function `create_shared_memory` for each region --- */
-fn process_memory_regions(doc: &Document, loader: &Loader) -> Result<(), Box<dyn Error>> {
+fn process_memory_regions(doc: &Document, loader: &mut Loader) -> Result<(), Box<dyn Error>> {
     for node in doc.descendants().filter(|n| n.has_tag_name("memory_region")) {
         let region_name = node.attribute("name").ok_or("Missing attribute 'name' on memory_region")?;
         let size_str = node.attribute("size").ok_or("Missing attribute 'size' on memory_region")?;
@@ -75,7 +90,7 @@ fn process_memory_regions(doc: &Document, loader: &Loader) -> Result<(), Box<dyn
 }
 
 /* --- Find all protection domains and call the necessary C functions to create them --- */
-fn process_protection_domains(doc: &Document, loader: &Loader) -> Result<Vec<(String, String)>, Box<dyn Error>> {
+fn process_protection_domains(doc: &Document, loader: &mut Loader) -> Result<Vec<(String, String)>, Box<dyn Error>> {
     let mut process_list: Vec<(String, String)> = Vec::new();
     for pd in doc.descendants().filter(|n| n.has_tag_name("protection_domain")) {
         let pd_name_str = pd.attribute("name").ok_or("Missing attribute 'name' on protection_domain")?;
@@ -106,7 +121,7 @@ fn process_protection_domains(doc: &Document, loader: &Loader) -> Result<Vec<(St
 }
 
 /* --- Find all communication channels between the processes and create them --- */
-fn process_channels(doc: &Document, loader: &Loader) -> Result<(), Box<dyn Error>> {
+fn process_channels(doc: &Document, loader: &mut Loader) -> Result<(), Box<dyn Error>> {
     for channel in doc.descendants().filter(|n| n.has_tag_name("channel")) {
         let mut ends_iter = channel.children().filter(|n| n.has_tag_name("end"));
         
@@ -127,7 +142,7 @@ fn process_channels(doc: &Document, loader: &Loader) -> Result<(), Box<dyn Error
 }
 
 /* --- Start all the processes within the process list --- */
-fn run_processes(process_list: Vec<(String, String)>, loader: &Loader) -> Result<(), Box<dyn Error>> {
+fn run_processes(process_list: Vec<(String, String)>, loader: &mut Loader) -> Result<(), Box<dyn Error>> {
     for (c_pd_name, c_pd_image_path) in process_list {
         loader.run_process(&c_pd_name, &c_pd_image_path)?;
     }
@@ -137,15 +152,15 @@ fn run_processes(process_list: Vec<(String, String)>, loader: &Loader) -> Result
 fn main() -> Result<(), Box<dyn Error>> {
     /* -- Grab the C binary we will be dynamically linking into as well as the .system XML file we are parsing --- */
     let lib: Library = unsafe { Library::new("./build/libmicrokit.so")? };
-    let loader: Loader<'_> = Loader::new(&lib)?;
+    let mut loader: Loader<'_> = Loader::new(&lib)?;
 
     let xml_content: String = std::fs::read_to_string("./example/example.system")?;
     let doc: Document<'_> = roxmltree::Document::parse(&xml_content)?;
 
-    process_memory_regions(&doc, &loader)?;
-    let process_list: Vec<(String, String)> = process_protection_domains(&doc, &loader)?;
-    process_channels(&doc, &loader)?;
-    run_processes(process_list, &loader)?;
+    process_memory_regions(&doc, &mut loader)?;
+    let process_list: Vec<(String, String)> = process_protection_domains(&doc, &mut loader)?;
+    process_channels(&doc, &mut loader)?;
+    run_processes(process_list, &mut loader)?;
 
     std::thread::park();
     Ok(())
