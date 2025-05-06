@@ -30,7 +30,8 @@ khash_t(shared_memory) *shm_name_to_info = NULL; // Maps channel name (char*) ->
  * 
  * Time complexity: O(1) average, O(p); worst-case where p is the total number of processes.
  * 
- * @param name The name of the protection domain (process)
+ * @param name The name of the protection domain (process). This is a Rust owned string.
+ * @param stack_size The size of the stack to be allocated for the process
  */
 void create_process(const char *name, uint32_t stack_size) {
     process_t *new = malloc(sizeof(process_t));
@@ -96,9 +97,9 @@ void create_process(const char *name, uint32_t stack_size) {
  * Time complexity: O(1) average, O(p + c) worst-case;
  * where p is the number of processes and c the number of channels.
  * 
- * @param from A string corresponding to the name of the 'from' process
- * @param to A string corresponding to the name of the 'to' process
- * @param ch An unsigned integer corresponding to the id of this channel
+ * @param from A string corresponding to the name of the 'from' process.
+ * @param to A string corresponding to the name of the 'to' process.
+ * @param ch An unsigned integer corresponding to the id of this channel.
  */
 void create_channel(const char *from, const char *to, microkit_channel ch) {
     khiter_t process_iter = kh_get(process, process_name_to_info, from);
@@ -122,8 +123,8 @@ void create_channel(const char *from, const char *to, microkit_channel ch) {
  * 
  * Time complexity: O(1) average, O(m) worst-case; where m is the number of total shared memory segments.
  * 
- * @param name A string corresponding to the name of the shared memory
- * @param size An unsigned 64 bit integer corresponding to the size of the shared memory
+ * @param name A string corresponding to the name of the shared memory. This is a Rust owned string.
+ * @param size An unsigned 64 bit integer corresponding to the size of the shared memory.
  */
 void create_shared_memory(char *name, u_int64_t size) {
     shared_memory_t *new = malloc(sizeof(shared_memory_t));
@@ -132,7 +133,7 @@ void create_shared_memory(char *name, u_int64_t size) {
         exit(EXIT_FAILURE);
     }
     new->size = size;
-    new->name = name;
+    new->_name = name;
 
     /**
      * Create the shared buffer within which the actual data shared between protection domains
@@ -149,7 +150,7 @@ void create_shared_memory(char *name, u_int64_t size) {
     }
 
     int ret;
-    khiter_t iter = kh_put(shared_memory, shm_name_to_info, new->name, &ret);
+    khiter_t iter = kh_put(shared_memory, shm_name_to_info, new->_name, &ret);
     if (ret == -1) {
         printf("Error on adding to hash map\n");
         exit(EXIT_FAILURE);
@@ -165,6 +166,7 @@ void create_shared_memory(char *name, u_int64_t size) {
  * 
  * @param proc_name A string corresponding to the name of a process
  * @param shm_name A string corresponding to the name of some shared memory
+ * @param shm_varname A string corresponding to the name of the variable in the process. This is a Rust owned string.
  */
 void add_shared_memory(const char *proc_name, const char *shm_name, const char *shm_varname) {
     khiter_t process_iter = kh_get(process, process_name_to_info, proc_name);
@@ -185,7 +187,7 @@ void add_shared_memory(const char *proc_name, const char *shm_name, const char *
     shared_memory_stack_t *head = process->shared_memory;
     process->shared_memory = malloc(sizeof(shared_memory_stack_t));
     process->shared_memory->shm = shared_memory;
-    process->shared_memory->varname = shm_varname;
+    process->shared_memory->_varname = shm_varname;
     process->shared_memory->next = head;
 }
 
@@ -196,12 +198,12 @@ void add_shared_memory(const char *proc_name, const char *shm_name, const char *
  * Time complexity: O(1) average, O(p) worst-case; where p is the number of processes.
  * 
  * @param proc_name A string corresponding to the name of the process
- * @param path A string corresponding to the path of the process
+ * @param path A string corresponding to the path of the process. This is a Rust owned string.
  */
 void run_process(char *proc_name, char *path) {
     khiter_t piter = kh_get(process, process_name_to_info, proc_name);
     process_t *process = kh_value(process_name_to_info, piter);
-    process->path = path;
+    process->_path = path;
 
     process->pid = clone(event_handler, process->stack_top, SIGCHLD, (void *) process);
     if (process->pid == -1) {

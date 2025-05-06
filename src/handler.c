@@ -23,7 +23,7 @@ process_t *proc;
 static void set_shared_memory(void *handle, process_t *process) {
     shared_memory_stack_t *curr = process->shared_memory;
     while (curr != NULL) {
-        seL4_Word *buff = (seL4_Word *) dlsym(handle, curr->varname);
+        seL4_Word *buff = (seL4_Word *) dlsym(handle, curr->_varname);
         const char *dlsym_error = dlerror();
         if (dlsym_error != NULL) {
             printf("Error finding shared variable: %s\n", dlsym_error);
@@ -102,7 +102,7 @@ int event_handler(void *arg) {
     proc = (process_t *) arg;
 
     // Dynamically loads the process at runtime
-    void *handle = dlopen(proc->path, RTLD_LAZY);
+    void *handle = dlopen(proc->_path, RTLD_LAZY);
     if (handle == NULL) {
         printf("Error opening file: %s\n", dlerror());
         exit(EXIT_FAILURE);

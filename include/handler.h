@@ -18,13 +18,18 @@ typedef struct shared_memory_stack shared_memory_stack_t;
 typedef struct shared_memory shared_memory_t;
 typedef struct message message_t;
 
-KHASH_MAP_INIT_STR(process, process_t *)
+/**
+ * Some of the fields within these structs are not owned by the C implementation, but rather by the Rust.
+ * These fields are prefixed with an underscore to indicate that they should not be freed.
+ */
+
+KHASH_MAP_INIT_STR(process, process_t *) // Stores Rust owned strings as keys
 KHASH_MAP_INIT_INT(channel, process_t *)
-KHASH_MAP_INIT_STR(shared_memory, shared_memory_t *)
+KHASH_MAP_INIT_STR(shared_memory, shared_memory_t *) // Stores Rust owned strings as keys
 
 struct process {
     pid_t pid;
-    char *path;
+    char *_path;
 
     char *stack_top;
     shared_memory_stack_t *shared_memory;
@@ -39,12 +44,12 @@ struct process {
 
 struct shared_memory_stack {
     shared_memory_t *shm;
-    const char *varname;
+    const char *_varname;
     shared_memory_stack_t *next;
 };
 
 struct shared_memory {
-    char *name;
+    char *_name;
     void *shared_buffer;
     int size;
 };
