@@ -36,30 +36,46 @@ khash_t(shared_memory) *shm_name_to_info = NULL; // Maps channel name (char*) ->
 void create_process(const char *name, uint32_t stack_size) {
     process_t *new = malloc(sizeof(process_t));
     if (new == NULL) {
-        printf("Error on allocating process\n");
+        fprintf(stderr, "Error on allocating process\n");
         exit(EXIT_FAILURE);
     }
 
-    char *stack = malloc(stack_size);
-    if (stack == NULL) {
-        printf("Error on allocating stack\n");
+    // Allocate main stack with guard page
+    void *stack = mmap(NULL, stack_size + PAGE_SIZE, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANON | MAP_STACK, -1, 0);
+    if (stack == MAP_FAILED) {
+        fprintf(stderr, "Error on creating the stack in %s\n", name);
         exit(EXIT_FAILURE);
     }
-    new->stack_top = stack + stack_size;
+
+    // Make guard page at the bottom of the stack unreadable, unwritable and unexecutable
+    if (mprotect(stack, PAGE_SIZE, PROT_NONE) != 0) {
+        fprintf(stderr, "Error on allocating guard page in %s\n", name);
+        exit(EXIT_FAILURE);
+    }
+
+    new->stack_top = (char *) stack + stack_size + PAGE_SIZE;
+
+    // Allocate alternative stack for signal handling done by the child process
+    new->sig_handler_stack = mmap(NULL, SIGSTKSZ, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (new->sig_handler_stack == MAP_FAILED) {
+        fprintf(stderr, "Error creating alternative stack\n");
+        exit(EXIT_FAILURE);
+    }
+
     new->shared_memory = NULL;
 
-    new->ipc_buffer = mmap(
-        NULL,
-        IPC_BUFFER_SIZE * sizeof(seL4_Word),
-        PROT_READ | PROT_WRITE,
-        MAP_SHARED | MAP_ANON,
-        -1,
-        0
-    );
+    new->ipc_buffer = mmap(NULL, IPC_BUFFER_SIZE * sizeof(seL4_Word),
+                           PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+    if (new->ipc_buffer == MAP_FAILED) {
+        fprintf(stderr, "Error on creating ipc buffer in %s\n", name);
+        exit(EXIT_FAILURE);
+    }
 
     new->notification = eventfd(0, EFD_NONBLOCK);
     if (new->notification == -1) {
-        printf("Error on creating eventfd\n");
+        fprintf(stderr, "Error on creating eventfd in %s\n", name);
         exit(EXIT_FAILURE);
     }
 
@@ -73,7 +89,7 @@ void create_process(const char *name, uint32_t stack_size) {
      */
     new->channel_id_to_process = kh_init(channel);
     if (pipe(new->send_pipe) == -1 || pipe(new->receive_pipe) == -1) {
-        printf("Error on creating pipe\n");
+        fprintf(stderr, "Error on creating pipe in %s\n", name);
         exit(EXIT_FAILURE);
     }
     
@@ -85,7 +101,7 @@ void create_process(const char *name, uint32_t stack_size) {
     int ret;
     khiter_t iter = kh_put(process, process_name_to_info, name, &ret);
     if (ret == -1) {
-        printf("Error on adding to hash map\n");
+        fprintf(stderr, "Error on adding to hash map in %s\n", name);
         exit(EXIT_FAILURE);
     }
     kh_value(process_name_to_info, iter) = new;
@@ -110,7 +126,7 @@ void create_channel(const char *from, const char *to, microkit_channel ch) {
     int ret;
     khiter_t channel_iter = kh_put(channel, from_process->channel_id_to_process, ch, &ret);
     if (ret == -1) {
-        printf("Error on adding to hash map\n");
+        fprintf(stderr, "Error on adding to hash map\n");
         exit(EXIT_FAILURE);
     }
     
@@ -129,7 +145,7 @@ void create_channel(const char *from, const char *to, microkit_channel ch) {
 void create_shared_memory(char *name, u_int64_t size) {
     shared_memory_t *new = malloc(sizeof(shared_memory_t));
     if (new == NULL) {
-        printf("Error on allocating shared memory\n");
+        fprintf(stderr, "Error on allocating shared memory\n");
         exit(EXIT_FAILURE);
     }
     new->size = size;
@@ -141,7 +157,7 @@ void create_shared_memory(char *name, u_int64_t size) {
      */
     new->shared_buffer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
     if (new->shared_buffer == MAP_FAILED) {
-        printf("Error on allocating shared buffer\n");
+        fprintf(stderr, "Error on allocating shared buffer\n");
         exit(EXIT_FAILURE);
     }
 
@@ -152,7 +168,7 @@ void create_shared_memory(char *name, u_int64_t size) {
     int ret;
     khiter_t iter = kh_put(shared_memory, shm_name_to_info, new->_name, &ret);
     if (ret == -1) {
-        printf("Error on adding to hash map\n");
+        fprintf(stderr, "Error on adding to hash map\n");
         exit(EXIT_FAILURE);
     }
     kh_value(shm_name_to_info, iter) = new;
@@ -171,14 +187,14 @@ void create_shared_memory(char *name, u_int64_t size) {
 void add_shared_memory(const char *proc_name, const char *shm_name, const char *shm_varname) {
     khiter_t process_iter = kh_get(process, process_name_to_info, proc_name);
     if (process_iter == kh_end(process_name_to_info)) {
-        printf("The mapping %s is invalid.\n", proc_name);
+        fprintf(stderr, "The mapping %s is invalid.\n", proc_name);
         exit(EXIT_FAILURE);
     }
     process_t *process = kh_value(process_name_to_info, process_iter);
 
     khiter_t shm_iter = kh_get(shared_memory, shm_name_to_info, shm_name);
     if (shm_iter == kh_end(shm_name_to_info)) {
-        printf("The mapping %s is invalid.\n", shm_name);
+        fprintf(stderr, "The mapping %s is invalid.\n", shm_name);
         exit(EXIT_FAILURE);
     }
     shared_memory_t *shared_memory = kh_value(shm_name_to_info, shm_iter);
@@ -200,14 +216,14 @@ void add_shared_memory(const char *proc_name, const char *shm_name, const char *
  * @param proc_name A string corresponding to the name of the process
  * @param path A string corresponding to the path of the process. This is a Rust owned string.
  */
-void run_process(char *proc_name, char *path) {
+void run_process(const char *proc_name, char *path) {
     khiter_t piter = kh_get(process, process_name_to_info, proc_name);
     process_t *process = kh_value(process_name_to_info, piter);
     process->_path = path;
 
     process->pid = clone(event_handler, process->stack_top, SIGCHLD, (void *) process);
     if (process->pid == -1) {
-        printf("Error on cloning\n");
+        fprintf(stderr, "Error on cloning\n");
         exit(EXIT_FAILURE);
     }
 }

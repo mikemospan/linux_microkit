@@ -28,8 +28,8 @@ $(BUILD_DIR):
 
 # Assumes Cargo.toml and src/main.rs exist in the project root.
 microkit:
-	cargo build --release
-	cp target/release/linux_microkit .
+	cargo build
+	cp target/debug/linux_microkit .
 
 clean:
 	rm -f $(BUILD_DIR)/libmicrokit.so microkit

@@ -12,7 +12,7 @@ static process_t *get_channel_receiver(microkit_channel ch) {
     khash_t(channel) *channel_id_to_process = proc->channel_id_to_process;
     khiter_t iter = kh_get(channel, channel_id_to_process, ch);
     if (kh_key(channel_id_to_process, iter) != ch) {
-        printf("Channel id %lu is not a valid channel\n", ch);
+        fprintf(stderr, "Channel id %lu is not a valid channel\n", ch);
         exit(EXIT_FAILURE);
     }
     return kh_value(channel_id_to_process, iter);

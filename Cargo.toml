@@ -1,7 +1,8 @@
 [package]
 name = "linux_microkit"
-version = "0.1.0"
-edition = "2024"
+edition = '2024'
+description = "The seL4 Microkit in a Linux environment"
+repository = "https://github.com/mikemospan/linux_microkit"
 
 [dependencies]
 libc = "0.2"

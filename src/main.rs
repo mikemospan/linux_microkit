@@ -2,6 +2,8 @@
  * This is the main Rust file which will start the Microkit process. Its main purpose
  * is to scrape the provided .system XML file and dynamically link into the compiled
  * C shared object binary (libmicrokit.so) to execute the necessary functions.
+ * 
+ * Author: Michael Mospan (@mmospan)
  */
 
 use std::error::Error;
@@ -10,23 +12,21 @@ use libloading::{Library, Symbol};
 use roxmltree::Document;
 
 type CreateProcess = extern "C" fn(*const libc::c_char, libc::c_uint);
-type CreateSharedMemory = extern "C" fn(*const libc::c_char, libc::c_ulong);
+type CreateSharedMemory = extern "C" fn(*mut libc::c_char, libc::c_ulong);
 type AddSharedMemory = extern "C" fn(*const libc::c_char, *const libc::c_char, *const libc::c_char);
-type CreateChannel = extern "C" fn(*const libc::c_char, *const libc::c_char, libc::c_uint);
-type RunProcess = extern "C" fn(*const libc::c_char, *const libc::c_char);
+type CreateChannel = extern "C" fn(*const libc::c_char, *const libc::c_char, libc::c_ulong);
+type RunProcess = extern "C" fn(*const libc::c_char, *mut libc::c_char);
 
 const KIBIBYTE: u32 = 1024;
 const MEBIBYTE: u32 = KIBIBYTE * KIBIBYTE;
+const PAGE_SIZE: u32 = 4 * KIBIBYTE;
 
 struct Loader<'a> {
     create_shared_memory: Symbol<'a, CreateSharedMemory>,
     create_process: Symbol<'a, CreateProcess>,
     add_shared_memory: Symbol<'a, AddSharedMemory>,
     create_channel: Symbol<'a, CreateChannel>,
-    run_process: Symbol<'a, RunProcess>,
-
-    // Keep all CString allocations alive for the lifetime of Loader
-    owned_c_strings: Vec<CString>,
+    run_process: Symbol<'a, RunProcess>
 }
 
 impl<'a> Loader<'a> {
@@ -37,48 +37,54 @@ impl<'a> Loader<'a> {
             add_shared_memory:    Self::sym::<AddSharedMemory>(lib, b"add_shared_memory"),
             create_channel:       Self::sym::<CreateChannel>(lib, b"create_channel"),
             run_process:          Self::sym::<RunProcess>(lib, b"run_process"),
-            owned_c_strings:      Vec::new(),
         }
     }
 
     fn sym<T>(lib: &'a Library, name: &[u8]) -> Symbol<'a, T> {
-        unsafe { lib.get(name).expect(&format!("Could not find symbol {:?}", name)) }
-    }
-
-    fn store_str(&mut self, s: &str) -> *const libc::c_char {
-        let cstr = CString::new(s).expect("CString::new failed");
-        let cptr = cstr.as_ptr();
-        self.owned_c_strings.push(cstr);
-        cptr
+        unsafe {
+            lib.get(name).unwrap_or_else(|_| {
+                panic!("Failed to load symbol '{}': symbol not found in the shared library", String::from_utf8_lossy(name))
+            })
+        }
     }
 
     fn create_shared_memory(&mut self, name: &str, size: u64) {
-        let name_ptr = self.store_str(name);
+        let name_ptr = CString::new(name)
+            .unwrap_or_else(|_| panic!("Shared memory name {:?} contains an internal null byte", name)).into_raw();
         (self.create_shared_memory)(name_ptr, size);
     }
 
     fn create_process(&mut self, name: &str, stack_size: u32) {
-        let name_ptr = self.store_str(name);
+        let name_ptr = CString::new(name)
+            .unwrap_or_else(|_| panic!("Process name {:?} contains an internal null byte", name)).into_raw();
         (self.create_process)(name_ptr, stack_size);
     }
 
     fn add_shared_memory(&mut self, pd_name: &str, mr_name: &str, varname: &str) {
-        let pd_ptr   = CString::new(pd_name).expect("CString::new failed");
-        let mr_ptr   = self.store_str(mr_name);
-        let var_ptr  = self.store_str(varname);
-        (self.add_shared_memory)(pd_ptr.as_ptr(), mr_ptr, var_ptr);
+        let pd_c = CString::new(pd_name)
+            .unwrap_or_else(|_| panic!("PD name {:?} contains an internal null byte", pd_name));
+        let mr_c = CString::new(mr_name)
+            .unwrap_or_else(|_| panic!("Memory region name {:?} contains an internal null byte", mr_name));
+        let var_ptr = CString::new(varname)
+            .unwrap_or_else(|_| panic!("Variable name {:?} contains an internal null byte", varname)).into_raw();
+
+        (self.add_shared_memory)(pd_c.as_ptr(), mr_c.as_ptr(), var_ptr);
     }
 
-    fn create_channel(&mut self, pd1: &str, pd2: &str, id: u32) {
-        let pd1_ptr = CString::new(pd1).expect("CString::new failed");
-        let pd2_ptr = CString::new(pd2).expect("CString::new failed");
-        (self.create_channel)(pd1_ptr.as_ptr(), pd2_ptr.as_ptr(), id);
+    fn create_channel(&mut self, pd1: &str, pd2: &str, id: u64) {
+        let pd1_c = CString::new(pd1)
+            .unwrap_or_else(|_| panic!("PD1 name {:?} contains an internal null byte", pd1));
+        let pd2_c = CString::new(pd2)
+            .unwrap_or_else(|_| panic!("PD2 name {:?} contains an internal null byte", pd2));
+        (self.create_channel)(pd1_c.as_ptr(), pd2_c.as_ptr(), id);
     }
 
     fn run_process(&mut self, pd_name: &str, image_path: &str) {
-        let pd_name_ptr = CString::new(pd_name).expect("CString::new failed");
-        let image_path_ptr = CString::new(image_path).expect("CString::new failed");
-        (self.run_process)(pd_name_ptr.as_ptr(), image_path_ptr.as_ptr());
+        let pd_name_c: CString = CString::new(pd_name)
+            .unwrap_or_else(|_| panic!("PD name {:?} contains an internal null byte", pd_name));
+        let image_path_ptr = CString::new(image_path)
+            .unwrap_or_else(|_| panic!("Image path {:?} contains an internal null byte", image_path)).into_raw();
+        (self.run_process)(pd_name_c.as_ptr(), image_path_ptr);
     }
 }
 
@@ -105,7 +111,8 @@ fn process_protection_domains(doc: &Document, loader: &mut Loader) -> Result<Vec
             return Err("Stack size must be between 4 KiB and 16 MiB".into());
         }
 
-        loader.create_process(pd_name_str, stack_size);
+        // We add an extra page size to every protection domain because glibc likes to use a lot of memory!
+        loader.create_process(pd_name_str, stack_size + PAGE_SIZE);
 
         if let Some(pd_image) = pd.descendants().find(|n| n.has_tag_name("program_image")) {
             let pd_image_path_raw = pd_image.attribute("path").expect("Missing attribute 'path' on program_image");
@@ -166,6 +173,5 @@ fn main() -> Result<(), Box<dyn Error>> {
     process_channels(&doc, &mut loader)?;
     run_processes(process_list, &mut loader)?;
 
-    std::thread::park();
     Ok(())
 }
