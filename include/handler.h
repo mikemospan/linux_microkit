@@ -24,15 +24,13 @@ typedef struct message message_t;
  * These fields are prefixed with an underscore to indicate that they should not be freed.
  */
 
-KHASH_MAP_INIT_STR(process, process_t *) // Stores Rust owned strings as keys
 KHASH_MAP_INIT_INT(channel, process_t *)
-KHASH_MAP_INIT_STR(shared_memory, shared_memory_t *) // Stores Rust owned strings as keys
 
 struct process {
-    pid_t pid;
     char *_path;
 
     char *stack_top;
+    char *sig_handler_stack;
     shared_memory_stack_t *shared_memory;
 
     khash_t(channel) *channel_id_to_process;
@@ -41,8 +39,6 @@ struct process {
     pid_t receive_pipe[2]; // Receive pipe for PPC
 
     seL4_Word *ipc_buffer;
-
-    char *sig_handler_stack;
 };
 
 struct shared_memory_stack {
@@ -52,7 +48,6 @@ struct shared_memory_stack {
 };
 
 struct shared_memory {
-    char *_name;
     void *shared_buffer;
     int size;
 };

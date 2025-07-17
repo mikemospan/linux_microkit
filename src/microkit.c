@@ -59,7 +59,9 @@ seL4_Word microkit_mr_get(seL4_Uint8 mr) {
  */
 microkit_msginfo microkit_ppcall(microkit_channel ch, microkit_msginfo msginfo) {
     process_t *receiver = get_channel_receiver(ch);
-    message_t send = {.ch = ch, .msginfo = msginfo, .send_back = proc->receive_pipe[PIPE_WRITE_FD]};
+    message_t send = {0};
+    send = (message_t){.ch = ch, .msginfo = msginfo, .send_back = proc->receive_pipe[PIPE_WRITE_FD]};
+
     memcpy(receiver->ipc_buffer, proc->ipc_buffer, msginfo * sizeof(seL4_Word));
     write(receiver->send_pipe[PIPE_WRITE_FD], &send, sizeof(message_t));
 
