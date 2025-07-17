@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <khash.h>
 
+#define PAGE_SIZE 4096
 #define MICROKIT_MAX_PDS 63
 #define IPC_BUFFER_SIZE 64
 #define PIPE_READ_FD 0
@@ -18,15 +19,18 @@ typedef struct shared_memory_stack shared_memory_stack_t;
 typedef struct shared_memory shared_memory_t;
 typedef struct message message_t;
 
-KHASH_MAP_INIT_STR(process, process_t *)
+/**
+ * Some of the fields within these structs are not owned by the C implementation, but rather by the Rust.
+ * These fields are prefixed with an underscore to indicate that they should not be freed.
+ */
+
 KHASH_MAP_INIT_INT(channel, process_t *)
-KHASH_MAP_INIT_STR(shared_memory, shared_memory_t *)
 
 struct process {
-    pid_t pid;
-    char *path;
+    char *_path;
 
     char *stack_top;
+    char *sig_handler_stack;
     shared_memory_stack_t *shared_memory;
 
     khash_t(channel) *channel_id_to_process;
@@ -39,12 +43,11 @@ struct process {
 
 struct shared_memory_stack {
     shared_memory_t *shm;
-    const char *varname;
+    const char *_varname;
     shared_memory_stack_t *next;
 };
 
 struct shared_memory {
-    char *name;
     void *shared_buffer;
     int size;
 };

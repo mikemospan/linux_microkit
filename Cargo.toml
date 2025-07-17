@@ -1,10 +1,10 @@
 [package]
 name = "linux_microkit"
-version = "0.1.0"
-edition = "2024"
+edition = '2024'
+description = "The seL4 Microkit in a Linux environment"
+repository = "https://github.com/mikemospan/linux_microkit"
 
 [dependencies]
 libc = "0.2"
 libloading = "0.8"
-roxmltree = "0.19"
-
+roxmltree = "0.20"

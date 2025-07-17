@@ -8,7 +8,7 @@ USER_OBJS = $(patsubst $(USR_DIR)/%.c,$(BUILD_DIR)/%.so,$(USRS))
 
 # Define the compiler and flags
 CC = gcc
-CFLAGS = -I./include -shared -fPIC -O3 -Wno-unused-result
+CFLAGS = -I./include -shared -fPIC -Og -Wno-unused-result -ggdb3 -Wall
 LDFLAGS = -L$(BUILD_DIR) -lmicrokit -Wl,-rpath,$(BUILD_DIR)
 
 .PHONY: all clean microkit
@@ -28,8 +28,8 @@ $(BUILD_DIR):
 
 # Assumes Cargo.toml and src/main.rs exist in the project root.
 microkit:
-	cargo build --release
-	cp target/release/linux_microkit .
+	cargo build
+	cp target/debug/linux_microkit .
 
 clean:
 	rm -f $(BUILD_DIR)/libmicrokit.so microkit

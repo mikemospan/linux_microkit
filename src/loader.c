@@ -1,5 +1,5 @@
 /**
- * This is the main loader file which is called directly by main.py as a DLL.
+ * This is the simplified loader file which is called directly by main.rs as a DLL.
  * Its main purpose is to load any dependencies and store all the data related
  * to the running protection domains before calling `run_process`.
  * 
@@ -9,59 +9,67 @@
 #define _GNU_SOURCE
 
 #include <handler.h>
-
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <sys/eventfd.h>
 #include <sched.h>
 
-/* --- Hashmaps used by the program defined in handler.h --- */
-khash_t(process) *process_name_to_info = NULL; // Maps process name (char*) -> process info (process_t*)
-khash_t(shared_memory) *shm_name_to_info = NULL; // Maps channel name (char*) -> process info (process_t*)
-
 /**
- * Creates the process data. This involves allocating memory for the process struct which holds its:
+ * Creates the process data and returns a handle to it.
+ * This involves allocating memory for the process struct which holds its:
  * 1. Stack,
- * 2. Shared memory,
- * 3. Channels (UNIX eventfd and pipes internally),
- * 4. Process ID,
+ * 2. Signal stack,
+ * 3. Shared memory,
+ * 4. Channels (UNIX eventfd and pipes internally),
  * 5. Path.
- * This information is then added to a hashmap which maps the process name to its struct.
  * 
- * Time complexity: O(1) average, O(p); worst-case where p is the total number of processes.
- * 
- * @param name The name of the protection domain (process)
+ * @param name The name of the protection domain (process). This is a Rust owned string.
+ * @param stack_size The size of the stack to be allocated for the process
  */
-void create_process(const char *name, uint32_t stack_size) {
+process_t *create_process(const char *name, uint32_t stack_size) {
     process_t *new = malloc(sizeof(process_t));
     if (new == NULL) {
-        printf("Error on allocating process\n");
+        fprintf(stderr, "Error on allocating process\n");
         exit(EXIT_FAILURE);
     }
-
-    char *stack = malloc(stack_size);
-    if (stack == NULL) {
-        printf("Error on allocating stack\n");
+    
+    // Allocate main stack with guard page
+    void *stack = mmap(NULL, stack_size + PAGE_SIZE, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANON | MAP_STACK, -1, 0);
+    if (stack == MAP_FAILED) {
+        fprintf(stderr, "Error on creating the stack in %s\n", name);
         exit(EXIT_FAILURE);
     }
-    new->stack_top = stack + stack_size;
+    
+    // Make guard page at the bottom of the stack unreadable, unwritable and unexecutable
+    if (mprotect(stack, PAGE_SIZE, PROT_NONE) != 0) {
+        fprintf(stderr, "Error on allocating guard page in %s\n", name);
+        exit(EXIT_FAILURE);
+    }
+    new->stack_top = (char *) stack + stack_size + PAGE_SIZE;
+    
+    // Allocate alternative stack for signal handling done by the child process
+    new->sig_handler_stack = mmap(NULL, SIGSTKSZ, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANON | MAP_STACK, -1, 0);
+    if (new->sig_handler_stack == MAP_FAILED) {
+        fprintf(stderr, "Error creating alternative stack\n");
+        exit(EXIT_FAILURE);
+    }
+    
     new->shared_memory = NULL;
-
-    new->ipc_buffer = mmap(
-        NULL,
-        IPC_BUFFER_SIZE * sizeof(seL4_Word),
-        PROT_READ | PROT_WRITE,
-        MAP_SHARED | MAP_ANON,
-        -1,
-        0
-    );
-
+    new->ipc_buffer = mmap(NULL, IPC_BUFFER_SIZE * sizeof(seL4_Word),
+                           PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+    if (new->ipc_buffer == MAP_FAILED) {
+        fprintf(stderr, "Error on creating ipc buffer in %s\n", name);
+        exit(EXIT_FAILURE);
+    }
+    
     new->notification = eventfd(0, EFD_NONBLOCK);
     if (new->notification == -1) {
-        printf("Error on creating eventfd\n");
+        fprintf(stderr, "Error on creating eventfd in %s\n", name);
         exit(EXIT_FAILURE);
     }
-
+    
     /**
      * Create the process's channels stored internally as UNIX pipes. Pipes are a unidirectional
      * meaning we will need two of them: one for sending a message, and one for receiving a reply.
@@ -72,154 +80,92 @@ void create_process(const char *name, uint32_t stack_size) {
      */
     new->channel_id_to_process = kh_init(channel);
     if (pipe(new->send_pipe) == -1 || pipe(new->receive_pipe) == -1) {
-        printf("Error on creating pipe\n");
+        fprintf(stderr, "Error on creating pipe in %s\n", name);
         exit(EXIT_FAILURE);
     }
     
-    new->pid = -1;
-    if (process_name_to_info == NULL) {
-        process_name_to_info = kh_init(process);
-    }
-
-    int ret;
-    khiter_t iter = kh_put(process, process_name_to_info, strdup(name), &ret);
-    if (ret == -1) {
-        printf("Error on adding to hash map\n");
-        exit(EXIT_FAILURE);
-    }
-    kh_value(process_name_to_info, iter) = new;
+    return new;
 }
 
 /**
- * Establishes a unidirectional channel of the form: 'from' =====> 'to'.
+ * Creates a segment of shared memory and returns a handle to it.
  * 
- * Time complexity: O(1) average, O(p + c) worst-case;
- * where p is the number of processes and c the number of channels.
- * 
- * @param from A string corresponding to the name of the 'from' process
- * @param to A string corresponding to the name of the 'to' process
- * @param ch An unsigned integer corresponding to the id of this channel
+ * @param name A string corresponding to the name of the shared memory. This is a Rust owned string.
+ * @param size An unsigned 64 bit integer corresponding to the size of the shared memory.
  */
-void create_channel(const char *from, const char *to, microkit_channel ch) {
-    khiter_t process_iter = kh_get(process, process_name_to_info, from);
-    process_t *from_process = kh_value(process_name_to_info, process_iter);
-
-    process_iter = kh_get(process, process_name_to_info, to);
-
-    int ret;
-    khiter_t channel_iter = kh_put(channel, from_process->channel_id_to_process, ch, &ret);
-    if (ret == -1) {
-        printf("Error on adding to hash map\n");
-        exit(EXIT_FAILURE);
-    }
-    
-    kh_value(from_process->channel_id_to_process, channel_iter) = kh_value(process_name_to_info, process_iter);
-}
-
-/**
- * Creates a segment of shared memory by allocating a shared_memory struct with relevant info.
- * This shared memory struct gets put into a hashmap which maps the name of the shared memory to its info.
- * 
- * Time complexity: O(1) average, O(m) worst-case; where m is the number of total shared memory segments.
- * 
- * @param name A string corresponding to the name of the shared memory
- * @param size An unsigned 64 bit integer corresponding to the size of the shared memory
- */
-void create_shared_memory(char *name, u_int64_t size) {
+shared_memory_t *create_shared_memory(const char *name, uint64_t size) {
     shared_memory_t *new = malloc(sizeof(shared_memory_t));
     if (new == NULL) {
-        printf("Error on allocating shared memory\n");
+        fprintf(stderr, "Error on allocating shared memory\n");
         exit(EXIT_FAILURE);
     }
+    
     new->size = size;
-    new->name = strdup(name);
-
+    
     /**
      * Create the shared buffer within which the actual data shared between protection domains
      * will be stored. Thus, we will mmap a set of anonymous memory which can be shared between processes.
      */
     new->shared_buffer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
     if (new->shared_buffer == MAP_FAILED) {
-        printf("Error on allocating shared buffer\n");
+        fprintf(stderr, "Error on allocating shared buffer for %s\n", name);
         exit(EXIT_FAILURE);
     }
-
-    if (shm_name_to_info == NULL) {
-        shm_name_to_info = kh_init(shared_memory);
-    }
-
-    int ret;
-    khiter_t iter = kh_put(shared_memory, shm_name_to_info, new->name, &ret);
-    if (ret == -1) {
-        printf("Error on adding to hash map\n");
-        exit(EXIT_FAILURE);
-    }
-    kh_value(shm_name_to_info, iter) = new;
+    
+    return new;
 }
 
 /**
- * Adds the specified shared memory block to a list of shared memory accessable by the process.
+ * Adds the specified shared memory block to a list of shared memory accessible by the process.
  * 
- * Time complexity: O(1) average, O(p + m) worst-case;
- * where p is the number of total processes and m is the number of shared memory segments.
- * 
- * @param proc_name A string corresponding to the name of a process
- * @param shm_name A string corresponding to the name of some shared memory
+ * @param process_handle Handle to the process (returned by create_process)
+ * @param shm_handle Handle to the shared memory (returned by create_shared_memory)
+ * @param shm_varname A string corresponding to the name of the variable in the process. This is a Rust owned string.
  */
-void add_shared_memory(const char *proc_name, const char *shm_name, const char *shm_varname) {
-    khiter_t process_iter = kh_get(process, process_name_to_info, proc_name);
-    if (process_iter == kh_end(process_name_to_info)) {
-        printf("The mapping %s is invalid.\n", proc_name);
-        exit(EXIT_FAILURE);
-    }
-    process_t *process = kh_value(process_name_to_info, process_iter);
-
-    khiter_t shm_iter = kh_get(shared_memory, shm_name_to_info, shm_name);
-    if (shm_iter == kh_end(shm_name_to_info)) {
-        printf("The mapping %s is invalid.\n", shm_name);
-        exit(EXIT_FAILURE);
-    }
-    shared_memory_t *shared_memory = kh_value(shm_name_to_info, shm_iter);
-
+void add_shared_memory(process_t *process, shared_memory_t *shared_memory, const char *shm_varname) {
     // Add the shared memory struct to the stack stored in the process. Stacks give us constant push time.
     shared_memory_stack_t *head = process->shared_memory;
     process->shared_memory = malloc(sizeof(shared_memory_stack_t));
+    if (process->shared_memory == NULL) {
+        fprintf(stderr, "Error allocating shared memory stack node\n");
+        exit(EXIT_FAILURE);
+    }
+    
     process->shared_memory->shm = shared_memory;
-    process->shared_memory->varname = strdup(shm_varname);
+    process->shared_memory->_varname = shm_varname;
     process->shared_memory->next = head;
+}
+
+/**
+ * Establishes a unidirectional channel of the form: 'from' =====> 'to'.
+ * 
+ * @param from_process Handle to the 'from' process
+ * @param to_process Handle to the 'to' process
+ * @param ch An unsigned integer corresponding to the id of this channel.
+ */
+void create_channel(process_t *from_process, process_t *to_process, microkit_channel ch) {
+    int ret;
+    khiter_t channel_iter = kh_put(channel, from_process->channel_id_to_process, ch, &ret);
+    if (ret == -1) {
+        fprintf(stderr, "Error on adding to channel hash map\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    kh_value(from_process->channel_id_to_process, channel_iter) = to_process;
 }
 
 /**
  * Runs the provided process by spawning a child from the main microkit process using clone.
  * From there, the child calls the `event_handler` function specified in handler.c.
  * 
- * Time complexity: O(1) average, O(p) worst-case; where p is the number of processes.
- * 
- * @param proc_name A string corresponding to the name of the process
- * @param path A string corresponding to the path of the process
+ * @param process_handle Handle to the process to run
+ * @param path A string corresponding to the path of the process. This is a Rust owned string.
  */
-void run_process(char *proc_name, char *path) {
-    khiter_t piter = kh_get(process, process_name_to_info, proc_name);
-    process_t *process = kh_value(process_name_to_info, piter);
-    process->path = path;
-
-    process->pid = clone(event_handler, process->stack_top, SIGCHLD, (void *) process);
-    if (process->pid == -1) {
-        printf("Error on cloning\n");
+void run_process(process_t *process, char *path) {
+    process->_path = path;
+    pid_t pid = clone(event_handler, process->stack_top, SIGCHLD, (void *) process);
+    if (pid == -1) {
+        fprintf(stderr, "Error on cloning process %s\n", path);
         exit(EXIT_FAILURE);
-    }
-}
-
-/**
- * Blocks the main microkit process until all its children protection domains are complete.
- * 
- * Time complexity: O(p); where p is the number of processes.
- */
-void block_until_finish() {
-    for (khint_t k = kh_begin(h); k != kh_end(process_name_to_info); ++k) {
-        process_t *process = kh_value(process_name_to_info, k);
-        if (waitpid(process->pid, NULL, 0) == -1) {
-            return;
-        }
     }
 }
