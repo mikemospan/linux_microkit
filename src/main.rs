@@ -6,6 +6,7 @@
  * Author: Michael Mospan (@mmospan)
  */
 
+use std::env;
 use std::error::Error;
 use std::ffi::CString;
 use std::collections::HashMap;
@@ -202,10 +203,16 @@ fn process_channels(doc: &Document, loader: &mut Loader) -> Result<(), Box<dyn E
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        eprintln!("Usage: {} <config.system>", args[0]);
+        std::process::exit(1);
+    }
+
     /* -- Grab the C binary we will be dynamically linking into as well as the .system XML file we are parsing --- */
     let lib: Library = unsafe { Library::new("./build/libmicrokit.so")? };
     let mut loader: Loader<'_> = Loader::new(&lib);
-    let xml_content: String = std::fs::read_to_string("./example/example.system")?;
+    let xml_content: String = std::fs::read_to_string(format!("./example/{}", &args[1]))?;
     let doc: Document<'_> = roxmltree::Document::parse(&xml_content)?;
 
     // Process all components
