@@ -6,5 +6,8 @@ repository = "https://github.com/mikemospan/linux_microkit"
 
 [dependencies]
 libc = "0.2"
-libloading = "0.8"
 roxmltree = "0.20"
+
+[lib]
+name = "loader_api"
+path = "src/loader.rs"

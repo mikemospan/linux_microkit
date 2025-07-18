@@ -169,3 +169,15 @@ void run_process(process_t *process, char *path) {
         exit(EXIT_FAILURE);
     }
 }
+
+/**
+ * Used purely for testing purposes by `tests/loader_test.rs`.
+ * 
+ * @param from The process to get the channel mapping from
+ * @param ch The channel along which we return the receiver process.
+ */
+process_t *get_channel_target(process_t *from, microkit_channel ch) {
+    khiter_t it = kh_get(channel, from->channel_id_to_process, ch);
+    if (it == kh_end(from->channel_id_to_process)) return NULL;
+    return kh_val(from->channel_id_to_process, it);
+}

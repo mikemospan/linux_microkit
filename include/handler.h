@@ -2,7 +2,7 @@
 
 #include <stdio.h>
 #include <unistd.h>
-#include <khash.h>
+#include "khash.h"
 
 #define PAGE_SIZE 4096
 #define MICROKIT_MAX_PDS 63
@@ -49,7 +49,7 @@ struct shared_memory_stack {
 
 struct shared_memory {
     void *shared_buffer;
-    int size;
+    unsigned long size;
 };
 
 struct message {

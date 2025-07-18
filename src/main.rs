@@ -8,137 +8,12 @@
 
 use std::env;
 use std::error::Error;
-use std::ffi::CString;
-use std::collections::HashMap;
-use libloading::{Library, Symbol};
 use roxmltree::Document;
-
-// Opaque pointer to C process_t struct
-type ProcessHandle = *mut libc::c_void;
-type SharedMemoryHandle = *mut libc::c_void;
-
-type CreateProcess = extern "C" fn(*const libc::c_char, libc::c_uint) -> ProcessHandle;
-type CreateSharedMemory = extern "C" fn(*const libc::c_char, libc::c_ulong) -> *mut libc::c_void;
-type AddSharedMemory = extern "C" fn(ProcessHandle, *mut libc::c_void, *const libc::c_char);
-type CreateChannel = extern "C" fn(ProcessHandle, ProcessHandle, libc::c_ulong);
-type RunProcess = extern "C" fn(ProcessHandle, *mut libc::c_char);
+use loader_api::Loader;
 
 const KIBIBYTE: u32 = 1024;
 const MEBIBYTE: u32 = KIBIBYTE * KIBIBYTE;
 const PAGE_SIZE: u32 = 4 * KIBIBYTE;
-
-struct ProcessInfo {
-    handle: ProcessHandle,
-    image_path: String,
-}
-
-struct Loader<'a> {
-    create_shared_memory: Symbol<'a, CreateSharedMemory>,
-    create_process: Symbol<'a, CreateProcess>,
-    add_shared_memory: Symbol<'a, AddSharedMemory>,
-    create_channel: Symbol<'a, CreateChannel>,
-    run_process: Symbol<'a, RunProcess>,
-    
-    // Rust maintains the mappings during setup
-    processes: HashMap<String, ProcessInfo>,
-    shared_memory: HashMap<String, SharedMemoryHandle>,
-}
-
-impl<'a> Loader<'a> {
-    fn new(lib: &'a Library) -> Self {
-        Self {
-            create_shared_memory: Self::sym::<CreateSharedMemory>(lib, b"create_shared_memory"),
-            create_process:       Self::sym::<CreateProcess>(lib, b"create_process"),
-            add_shared_memory:    Self::sym::<AddSharedMemory>(lib, b"add_shared_memory"),
-            create_channel:       Self::sym::<CreateChannel>(lib, b"create_channel"),
-            run_process:          Self::sym::<RunProcess>(lib, b"run_process"),
-            processes:            HashMap::new(),
-            shared_memory:        HashMap::new(),
-        }
-    }
-
-    fn sym<T>(lib: &'a Library, name: &[u8]) -> Symbol<'a, T> {
-        unsafe {
-            lib.get(name).unwrap_or_else(|_| {
-                panic!("Failed to load symbol '{}': symbol not found in the shared library", String::from_utf8_lossy(name))
-            })
-        }
-    }
-
-    fn create_shared_memory(&mut self, name: &str, size: u64) {
-        let name_c = CString::new(name)
-            .unwrap_or_else(|_| panic!("Shared memory name {:?} contains an internal null byte", name));
-        
-        let handle = (self.create_shared_memory)(name_c.as_ptr(), size);
-        
-        self.shared_memory.insert(name.to_string(), handle);
-    }
-
-    fn create_process(&mut self, name: &str, stack_size: u32) -> ProcessHandle {
-        let name_c = CString::new(name)
-            .unwrap_or_else(|_| panic!("Process name {:?} contains an internal null byte", name));
-        
-        let handle = (self.create_process)(name_c.as_ptr(), stack_size);
-        
-        self.processes.insert(name.to_string(), ProcessInfo {
-            handle,
-            image_path: String::new(), // Will be set later
-        });
-        
-        handle
-    }
-
-    fn set_process_image(&mut self, pd_name: &str, image_path: String) {
-        if let Some(process) = self.processes.get_mut(pd_name) {
-            process.image_path = image_path;
-        }
-    }
-
-    fn add_shared_memory(&mut self, pd_name: &str, mr_name: &str, varname: &str) {
-        let process_handle = self.processes.get(pd_name)
-            .unwrap_or_else(|| panic!("Process {} not found", pd_name))
-            .handle;
-        
-        let shm_handle = self.shared_memory.get(mr_name)
-            .unwrap_or_else(|| panic!("Shared memory {} not found", mr_name));
-        
-        let var_ptr = CString::new(varname)
-            .unwrap_or_else(|_| panic!("Variable name {:?} contains an internal null byte", varname)).into_raw();
-        
-        (self.add_shared_memory)(process_handle, *shm_handle, var_ptr);
-    }
-
-    fn create_channel(&mut self, pd1: &str, pd2: &str, id: u64) {
-        let process1_handle = self.processes.get(pd1)
-            .unwrap_or_else(|| panic!("Process {} not found", pd1))
-            .handle;
-        
-        let process2_handle = self.processes.get(pd2)
-            .unwrap_or_else(|| panic!("Process {} not found", pd2))
-            .handle;
-        
-        (self.create_channel)(process1_handle, process2_handle, id);
-    }
-
-    fn run_process(&mut self, pd_name: &str) {
-        let process = self.processes.get(pd_name)
-            .unwrap_or_else(|| panic!("Process {} not found", pd_name));
-        
-        let image_path_ptr = CString::new(process.image_path.as_str())
-            .unwrap_or_else(|_| panic!("Image path {:?} contains an internal null byte", process.image_path)).into_raw();
-        
-        (self.run_process)(process.handle, image_path_ptr);
-    }
-
-    fn run_all_processes(&mut self) {
-        // Clone the keys to avoid borrowing issues
-        let process_names: Vec<String> = self.processes.keys().cloned().collect();
-        
-        for process_name in process_names {
-            self.run_process(&process_name);
-        }
-    }
-}
 
 /* --- Find all memory regions and call the C function `create_shared_memory` for each region --- */
 fn process_memory_regions(doc: &Document, loader: &mut Loader) -> Result<(), Box<dyn Error>> {
@@ -210,8 +85,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     /* -- Grab the C binary we will be dynamically linking into as well as the .system XML file we are parsing --- */
-    let lib: Library = unsafe { Library::new("./build/libmicrokit.so")? };
-    let mut loader: Loader<'_> = Loader::new(&lib);
+    let mut loader: Loader<> = Loader::new();
     let xml_content: String = std::fs::read_to_string(format!("./example/{}", &args[1]))?;
     let doc: Document<'_> = roxmltree::Document::parse(&xml_content)?;
 
