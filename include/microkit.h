@@ -4,11 +4,14 @@
 
 typedef uint64_t microkit_channel;
 typedef uint64_t seL4_Word;
-typedef seL4_Word microkit_msginfo;
 typedef uint8_t seL4_Uint8;
 typedef uint16_t seL4_Uint16;
 typedef uint32_t seL4_Uint32;
+typedef uint64_t seL4_Uint64;
 typedef uint64_t seL4_Error;
+typedef struct {
+    unsigned long words[1];
+} microkit_msginfo;
 
 /* User provided functions */
 void init(void);
@@ -51,6 +54,10 @@ static inline void microkit_internal_crash(seL4_Error err) {
 void microkit_notify(microkit_channel ch);
 
 microkit_msginfo microkit_msginfo_new(seL4_Word label, seL4_Uint16 count);
+
+seL4_Word microkit_msginfo_get_label(microkit_msginfo msginfo);
+
+seL4_Word microkit_msginfo_get_count(microkit_msginfo msginfo);
 
 void microkit_mr_set(seL4_Uint8 mr, seL4_Word value);
 

@@ -1,6 +1,7 @@
 #include <microkit.h>
 #include <handler.h>
 #include <stdio.h>
+#include <assert.h>
 
 extern process_t *proc;
 
@@ -59,12 +60,35 @@ void microkit_notify(microkit_channel ch) {
 }
 
 /**
- * Creates a microkit message info struct. TODO: Figure out what to do with the label.
+ * Creates a microkit message info struct.
  * @param label The label of the message
  * @param count The number of words in the message
  */
 microkit_msginfo microkit_msginfo_new(seL4_Word label, seL4_Uint16 count) {
-    return (microkit_msginfo) count;
+    microkit_msginfo message_info = {0};
+
+    /* fail if user has passed bits that we will override */  
+    assert((label & ~0xfffffffffffffull) == ((0 && (label & (1ull << 63))) ? 0x0 : 0));
+    assert((count & ~0x7full) == ((0 && (count & (1ull << 63))) ? 0x0 : 0));
+
+    message_info.words[0] = 0 | (label & 0xfffffffffffffull) << 12 | (count & 0x7full) << 0;
+    return message_info;
+}
+
+/**
+ * Retrieves the label from a microkit message info struct.
+ * @param msginfo The message info struct
+ */
+seL4_Word microkit_msginfo_get_label(microkit_msginfo msginfo) {
+    return (msginfo.words[0] >> 12) & 0xfffffffffffffull;
+}
+
+/**
+ * Retrieves the count from a microkit message info struct.
+ * @param msginfo The message info struct
+ */
+seL4_Word microkit_msginfo_get_count(microkit_msginfo msginfo) {
+    return msginfo.words[0] & 0x7full;
 }
 
 /**
@@ -90,16 +114,23 @@ seL4_Word microkit_mr_get(seL4_Uint8 mr) {
  * @param msginfo The message information
  */
 microkit_msginfo microkit_ppcall(microkit_channel ch, microkit_msginfo msginfo) {
+    seL4_Word label = microkit_msginfo_get_label(msginfo);
+    seL4_Uint16 count = microkit_msginfo_get_count(msginfo);
+
     process_t *receiver = get_channel_receiver(ch);
     message_t send = {0};
     send = (message_t){.ch = ch, .msginfo = msginfo, .send_back = proc->receive_pipe[PIPE_WRITE_FD]};
 
-    memcpy(receiver->ipc_buffer, proc->ipc_buffer, msginfo * sizeof(seL4_Word));
+    memcpy(receiver->ipc_buffer, proc->ipc_buffer, count * sizeof(seL4_Word));
     write(receiver->send_pipe[PIPE_WRITE_FD], &send, sizeof(message_t));
 
     microkit_msginfo receive;
-    read(proc->receive_pipe[PIPE_READ_FD], &receive, sizeof(long));
-    memcpy(proc->ipc_buffer, receiver->ipc_buffer, receive * sizeof(seL4_Word));
-   
-    return receive;
+    read(proc->receive_pipe[PIPE_READ_FD], &receive, sizeof(microkit_msginfo));
+
+    label = microkit_msginfo_get_label(receive);
+    count = microkit_msginfo_get_count(receive);
+
+    memcpy(proc->ipc_buffer, receiver->ipc_buffer, count * sizeof(seL4_Word));
+
+    return microkit_msginfo_new(label, count);
 }

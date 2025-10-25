@@ -17,14 +17,22 @@ void notified(microkit_channel ch) {
 }
 
 microkit_msginfo protected(microkit_channel ch, microkit_msginfo msginfo) {
-    seL4_Word first_word = microkit_mr_get(0);
-    seL4_Word second_word = microkit_mr_get(1);
-    
-    microkit_dbg_puts("Protected Procedure call received by client: [");
-    microkit_dbg_put32(first_word);
-    microkit_dbg_puts(", ");
-    microkit_dbg_put32(second_word);
-    microkit_dbg_puts("]\n");
+    seL4_Word label = microkit_msginfo_get_label(msginfo);
+    seL4_Word count = microkit_msginfo_get_count(msginfo);
+
+    microkit_dbg_puts("Protected procedure call received by client with label: ");
+    microkit_dbg_put32(label);
+    microkit_dbg_puts(" and count: ");
+    microkit_dbg_put32(count);
+    microkit_dbg_puts("\n");
+
+    for (int i = 0; i < count; i++) {
+        microkit_dbg_puts("Message Register ");
+        microkit_dbg_put32(i);
+        microkit_dbg_puts(": ");
+        microkit_dbg_put32(microkit_mr_get(i));
+        microkit_dbg_puts("\n");
+    }
 
     microkit_mr_set(0, 1);
     return microkit_msginfo_new(0, 1);

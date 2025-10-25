@@ -1,5 +1,6 @@
 #pragma once
 
+#include <microkit.h>
 #include <stdio.h>
 #include <unistd.h>
 #include "khash.h"
@@ -9,10 +10,6 @@
 #define IPC_BUFFER_SIZE 64
 #define PIPE_READ_FD 0
 #define PIPE_WRITE_FD 1
-
-typedef unsigned long microkit_channel;
-typedef unsigned long seL4_Word;
-typedef seL4_Word microkit_msginfo;
 
 typedef struct process process_t;
 typedef struct shared_memory_stack shared_memory_stack_t;

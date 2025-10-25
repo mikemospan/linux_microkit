@@ -7,9 +7,9 @@ char *buffer;
 void init(void) {
     microkit_mr_set(0, 100);
     microkit_mr_set(1, 8);
-    microkit_ppcall(CLIENT_CHANNEL_ID, microkit_msginfo_new(0, 2));
+    microkit_ppcall(CLIENT_CHANNEL_ID, microkit_msginfo_new(1, 2));
 
-    microkit_dbg_puts("== SERVER PROCESS INITIALISED WITH RESPONSE: ");
+    microkit_dbg_puts("== SERVER COMPLETED INITIALISATION WITH RESPONSE: ");
     microkit_dbg_put32(microkit_mr_get(0));
     microkit_dbg_puts(" ==\n");
 }
