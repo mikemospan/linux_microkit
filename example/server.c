@@ -2,7 +2,7 @@
 
 #define CLIENT_CHANNEL_ID 2
 
-unsigned long buffer;
+char *buffer;
 
 void init(void) {
     microkit_mr_set(0, 100);
@@ -20,7 +20,7 @@ void notified(microkit_channel ch) {
     // Copy "Hello World!" into the shared buffer
     char *hello = "Hello World!";
     for (int i = 0; i < 13; i++) {
-        ((char *) buffer)[i] = hello[i];
+        buffer[i] = hello[i];
     }
 
     microkit_notify(CLIENT_CHANNEL_ID);

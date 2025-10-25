@@ -2,7 +2,7 @@
 
 #define SERVER_CHANNEL_ID 1
 
-unsigned long buffer;
+char *buffer;
 
 void init(void) {
     microkit_dbg_puts("== CLIENT PROCESS INITIALISED ==\n");
@@ -12,7 +12,7 @@ void init(void) {
 void notified(microkit_channel ch) {
     microkit_dbg_puts("Notification received by client.\n");
     microkit_dbg_puts("Client accessing the shared buffer: ");
-    microkit_dbg_puts((char *) buffer);
+    microkit_dbg_puts(buffer);
     microkit_dbg_puts("\n");
 }
 
