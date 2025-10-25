@@ -11,7 +11,7 @@
 #define PIPE_WRITE_FD 1
 
 typedef unsigned long microkit_channel;
-typedef long seL4_Word;
+typedef unsigned long seL4_Word;
 typedef seL4_Word microkit_msginfo;
 
 typedef struct process process_t;

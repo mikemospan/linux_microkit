@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <system>
-    <memory_region name="shared" size="0x1000" phys_addr="0x9010000"/>
+    <memory_region name="shared" size="0x1000"/>
 
     <protection_domain name="server" stack_size="0x2000">
         <program_image path="server.elf"/>
-        <map mr="shared" vaddr="0x4000000" perms="rw" cached="false" setvar_vaddr="buffer"/>
+        <map mr="shared" vaddr="0x4000000" perms="rw" setvar_vaddr="buffer"/>
     </protection_domain>
 
     <protection_domain name="client">
         <program_image path="client.elf"/>
-        <map mr="shared" vaddr="0x4000000" perms="rw" cached="false" setvar_vaddr="buffer"/>
+        <map mr="shared" vaddr="0x4000000" perms="rw" setvar_vaddr="buffer"/>
     </protection_domain>
 
     <channel>

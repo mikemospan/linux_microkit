@@ -5,6 +5,38 @@
 extern process_t *proc;
 
 /**
+ * Output a single character on the debug console.
+ * @param c The character to output
+ */
+void microkit_dbg_putc(int c) {
+    printf("%c", c);
+}
+
+/**
+ * Output a NUL terminated string to the debug console.
+ * @param s The string to output
+ */
+void microkit_dbg_puts(const char *s) {
+    printf("%s", s);
+}
+
+/**
+ * Output the decimal representation of an 8-bit integer to the debug console.
+ * @param x The 8-bit integer to output
+ */
+void microkit_dbg_put8(seL4_Uint8 x) {
+    printf("%u", x);
+}
+
+/**
+ * Output the decimal representation of an 32-bit integer to the debug console.
+ * @param x The 32-bit integer to output
+ */
+void microkit_dbg_put32(seL4_Uint32 x) {
+    printf("%u", x);
+}
+
+/**
  * Get the receiver process for a channel
  * @param ch Channel identifier
  */
